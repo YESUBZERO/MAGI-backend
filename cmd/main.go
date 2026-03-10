@@ -1,7 +1,11 @@
 package main
 
 import (
+	"context"
 	"log"
+	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/YESUBZERO/consumer-service/internal/config"
 	"github.com/YESUBZERO/consumer-service/internal/kafka"
@@ -10,27 +14,38 @@ import (
 
 func main() {
 	// Cargar configuración desde variables de entorno
-	cfg, err := config.LoadConfig()
+	cfg, err := config.Load()
 	if err != nil {
-		log.Fatalf("Error cargando configuración: %v", err)
+		log.Fatalf("Error cargando la configuración: %v", err)
 	}
 
-	// Inicializar conexión a PostgreSQL
-	db := config.InitDB(cfg.DB)
-
-	// Inicializar repositorio para PostgreSQL
-	shipRepo := repository.NewShipRepository(db)
+	// Inicializar la base de datos y repositorio
+	db, err := repository.InitDB(cfg.GetDSN())
+	if err != nil {
+		log.Fatalf("Error Inicializando la base de datos: %v", err)
+	}
+	repo := repository.NewShipRepository(db)
 
 	// Inicializar productor de Kafka
-	producer := kafka.NewProducer(cfg)
+	producer, err := kafka.NewProducer(cfg.GetKafkaBrokers())
+	if err != nil {
+		log.Fatalf("Error Inicializando el productor de Kafka: %v", err)
+	}
+	defer func() {
+		if err := producer.Close(); err != nil { // Cerrar el productor al finalizar
+			log.Println("Error cerrando el productor de Kafka:", err)
+		}
+	}()
 
-	// Inicializar consumidor de Kafka
-	consumer := kafka.NewConsumer(cfg, producer, shipRepo)
+	// Iniciar el consumidor de Kafka
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()                                       // Detener el contexto al recibir una señal de interrupción
+	consumer := kafka.NewConsumer(cfg, producer, repo) // Inicializar el consumidor de Kafka
 
-	// Iniciar el consumidor en una goroutine
-	go consumer.ConsumeMessages()
+	log.Println("🚢 [MAGI-CORE] Servicio de Ingesta iniciado... Presiona Ctrl+C para detener.")
 
-	// Mantener el servicio corriendo
-	//log.Println("📡 Storage Service en ejecución...")
-	select {}
+	consumer.Start(ctx) // Iniciar el consumo de mensajes
+
+	log.Println("🛑 [MAGI-CORE] Apagando el servicio de forma segura...")
+
 }
