@@ -80,7 +80,7 @@ type Repository interface {
 	SaveStatic(ais *StaticAIS) error
 	SaveDynamic(ais *DynamicAIS) error
 	GetByIMO(imo int) (*StaticAIS, error)
-	GetByMMSI(mmsi int) (*StaticAIS, error)
+	GetByMMSI(mmsi int) (*DynamicAIS, error)
 }
 
 // Definimos un struct type para implementar
@@ -117,4 +117,8 @@ func (db *repository) GetByIMO(imo int) (*StaticAIS, error) {
 	return nil, nil
 }
 
-// GetByMMSI obtiene informacion de un
+// GetByMMSI obtiene informacion de un barco por MMSI
+func (db *repository) GetByMMSI(mmsi int) (*DynamicAIS, error) {
+	// método para obtener informacion dinamica de un barco
+	return nil, nil
+}
