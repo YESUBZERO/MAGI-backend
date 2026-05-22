@@ -1,5 +1,6 @@
 package repository
 
+/*
 import (
 	"fmt"
 	"log"
@@ -101,4 +102,4 @@ func (r *shipRepository) SaveShip(ship *models.Ship) error {
 // SavePosition guarda la posición del barco en la base de datos
 func (r *shipRepository) SavePosition(pos *models.ShipPosition) error {
 	return r.db.Create(pos).Error
-}
+}*/
