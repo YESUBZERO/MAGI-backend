@@ -6,7 +6,7 @@ import "time"
 // MODELOS DE LA ENTIDAD AIS
 // ===========================================================
 
-// DBStaticAIS representa la tabla para mensajes AIS estaticos
+// StaticAIS representa la tabla para mensajes AIS estaticos
 type StaticAIS struct {
 	ID        uint
 	MsgType   int
@@ -20,7 +20,7 @@ type StaticAIS struct {
 	Dynamics  []DynamicAIS
 }
 
-// DBDynamicAIS representa la tabla para mensajes AIS dinámicos
+// DynamicAIS representa la tabla para mensajes AIS dinámicos
 type DynamicAIS struct {
 	ID        uint
 	MsgType   int
