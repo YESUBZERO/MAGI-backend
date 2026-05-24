@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // ===========================================================
@@ -24,12 +25,14 @@ type DBStaticAIS struct {
 	Dynamics  []DBDynamicAIS `gorm:"foreignKey:MMSI;references:MMSI"`
 }
 
-// DBDynamicAIS representa la tabla para mensajes AIS dinámicos
+// DBDynamicAIS representa la tabla para mensajes AIS dinámicos.
+// El índice único compuesto (MMSI, Timestamp) garantiza idempotencia:
+// si Kafka reenvía un mensaje ya procesado, el INSERT se ignora sin error.
 type DBDynamicAIS struct {
-	ID        uint `gorm:"primaryKey"`
+	ID        uint   `gorm:"primaryKey"`
 	MsgType   int
-	Timestamp string
-	MMSI      int `gorm:"index"`
+	Timestamp string `gorm:"uniqueIndex:idx_dynamic_mmsi_timestamp"`
+	MMSI      int    `gorm:"uniqueIndex:idx_dynamic_mmsi_timestamp"`
 	Status    string
 	Turn      float64
 	Speed     float64
@@ -158,8 +161,10 @@ func (r *repository) SaveDynamic(ais *DynamicAIS) error {
 		Radio:     ais.Radio,
 	}
 
-	// 4. Retornamos la consulta
-	return r.db.Create(&dynamicMessage).Error
+	// 4. Insertamos con OnConflict DoNothing para garantizar idempotencia.
+	//    Si Kafka reenvía un mensaje duplicado (mismo MMSI + Timestamp),
+	//    el INSERT se ignora silenciosamente sin retornar error.
+	return r.db.Clauses(clause.OnConflict{DoNothing: true}).Create(&dynamicMessage).Error
 }
 
 // GetByIMO busca un buque estatico e incluye todo su historial de posiciones.
