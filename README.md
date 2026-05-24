@@ -35,24 +35,24 @@ El servicio implementa una arquitectura de **capas limpias** donde cada capa sol
 │                        consumer-service                             │
 │                                                                     │
 │   Kafka Broker                                                      │
-│   ┌──────────┐    ┌─────────────────────────────────────────────┐  │
-│   │ ais.     │    │  kafka.ConsumerGroup                        │  │
-│   │ static   │───▶│                                             │  │
-│   ├──────────┤    │  ConsumeClaim() ──▶ chan *kafkaJob (x500)   │  │
-│   │ ais.     │    │                           │                 │  │
-│   │ dynamic  │───▶│  Worker Pool (x5) ◀───────┘                │  │
-│   └──────────┘    └──────────────┬──────────────────────────────┘  │
+│   ┌──────────┐    ┌─────────────────────────────────────────────┐   │
+│   │ ais.     │    │  kafka.ConsumerGroup                        │   │
+│   │ static   │───▶│                                             │   │
+│   ├──────────┤    │  ConsumeClaim() ──▶ chan *kafkaJob (x500)   │   │
+│   │ ais.     │    │                           │                 │   │
+│   │ dynamic  │───▶│  Worker Pool (x5) ◀───────┘                 │   │
+│   └──────────┘    └──────────────┬──────────────────────────────┘   │
 │                                  │                                  │
-│                    ┌─────────────▼──────────────┐                  │
-│   HTTP Client      │       ais.Service           │                  │
-│   ┌──────────┐     │  (validaciones de dominio)  │                  │
-│   │ REST API │────▶│                             │                  │
-│   └──────────┘     └─────────────┬──────────────┘                  │
+│                    ┌─────────────▼──────────────┐                   │
+│   HTTP Client      │       ais.Service          │                   │
+│   ┌──────────┐     │  (validaciones de dominio) │                   │
+│   │ REST API │────▶│                            │                   │
+│   └──────────┘     └─────────────┬──────────────┘                   │
 │                                  │                                  │
-│                    ┌─────────────▼──────────────┐                  │
-│                    │      ais.Repository         │                  │
-│                    │  (GORM · PostgreSQL)        │                  │
-│                    └─────────────────────────────┘                  │
+│                    ┌─────────────▼──────────────┐                   │
+│                    │      ais.Repository        │                   │
+│                    │  (GORM · PostgreSQL)       │                   │
+│                    └────────────────────────────┘                   │
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -94,8 +94,8 @@ consumer-service/
 │   │   └── postgres.go          # Inicialización de la conexión y pool de conexiones
 │   │
 │   └── kafka/
-│       ├── consumer.go          # Consumer Group · worker pool · at-least-once delivery
-│       └── producer.go          # Productor Kafka (utilitario)
+│       └── consumer.go          # Consumer Group · worker pool · at-least-once delivery
+│      
 │
 ├── Dockerfile                   # Build multi-stage: builder (golang:alpine) + runtime (alpine)
 ├── go.mod
