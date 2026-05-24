@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 
+	"github.com/joho/godotenv"
 	"github.com/kelseyhightower/envconfig"
 )
 
@@ -69,6 +70,9 @@ func (c *Config) validate() error {
 func Load() (*Config, error) {
 
 	// 1. Intentar cargar el archivo .env si existe (Solo para desarrollo)
+	if err := godotenv.Load(); err != nil {
+		return nil, fmt.Errorf("error cargando archivo .env: %w", err)
+	}
 
 	cfg := &Config{}
 
