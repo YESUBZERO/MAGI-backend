@@ -54,14 +54,16 @@ func (c *Consumer) Start(ctx context.Context) {
 	groupID := c.cfg.GetKafkaGroupID()
 	topics := []string{staticTopic, dynamicTopic}
 
-	// Canal compartido entre el ConsumerGroupHandler y el worker pool
-	messageChannel := make(chan *sarama.ConsumerMessage, 500)
+	// Canal compartido entre el ConsumerGroupHandler y el worker pool.
+	// Transporta kafkaJob (mensaje + sesión) para que el worker pueda
+	// hacer el MarkMessage tras persistir exitosamente en BD.
+	jobChannel := make(chan *kafkaJob, 500)
 	var wg sync.WaitGroup
 
 	// 1. Iniciar el worker pool
 	for i := range WorkerPool {
 		wg.Add(1)
-		go c.worker(i, &wg, messageChannel, staticTopic, dynamicTopic)
+		go c.worker(i, &wg, jobChannel, staticTopic, dynamicTopic)
 	}
 
 	// 2. Configurar sarama para el Consumer Group
@@ -80,7 +82,7 @@ func (c *Consumer) Start(ctx context.Context) {
 	defer group.Close()
 
 	// 4. Handler que implementa sarama.ConsumerGroupHandler
-	handler := &consumerGroupHandler{messageChannel: messageChannel}
+	handler := &consumerGroupHandler{jobChannel: jobChannel}
 
 	log.Printf("📡 [MAGI-CORE] Consumer Group '%s' escuchando tópicos: %v", groupID, topics)
 
@@ -102,9 +104,22 @@ func (c *Consumer) Start(ctx context.Context) {
 	// 6. Esperar la señal de cierre
 	<-ctx.Done()
 	log.Println("🛑 Apagando Consumer Group de Kafka de forma segura...")
-	close(messageChannel)
+	close(jobChannel)
 	wg.Wait()
 	log.Println("✅ Todos los workers de Kafka han terminado.")
+}
+
+// ===========================================================
+// KAFKA JOB — unidad de trabajo del worker pool
+// ===========================================================
+
+// kafkaJob agrupa el mensaje de Kafka con la sesión activa del Consumer Group.
+// Esto permite que el worker haga el MarkMessage DESPUÉS de persistir el dato,
+// garantizando semántica at-least-once: si el servicio cae antes de terminar,
+// el offset no habrá sido commiteado y Kafka reenviará el mensaje.
+type kafkaJob struct {
+	msg     *sarama.ConsumerMessage
+	session sarama.ConsumerGroupSession
 }
 
 // ===========================================================
@@ -112,10 +127,10 @@ func (c *Consumer) Start(ctx context.Context) {
 // ===========================================================
 
 // consumerGroupHandler implementa sarama.ConsumerGroupHandler.
-// Su única responsabilidad es reenviar los mensajes recibidos al canal
-// del worker pool y confirmar el offset una vez entregados.
+// Su única responsabilidad es reenviar los jobs al worker pool.
+// NO marca el offset aquí — eso lo hace el worker tras persistir en BD.
 type consumerGroupHandler struct {
-	messageChannel chan<- *sarama.ConsumerMessage
+	jobChannel chan<- *kafkaJob
 }
 
 // Setup se ejecuta al inicio de cada sesión de Consumer Group (tras un rebalanceo).
@@ -130,8 +145,8 @@ func (h *consumerGroupHandler) Cleanup(sarama.ConsumerGroupSession) error {
 	return nil
 }
 
-// ConsumeClaim lee los mensajes de una partición asignada y los envía al worker pool.
-// Llama a session.MarkMessage() para comprometer el offset tras entregar cada mensaje.
+// ConsumeClaim lee los mensajes de una partición asignada y los encola como kafkaJob.
+// El offset NO se marca aquí: el worker lo hará después de procesar exitosamente.
 func (h *consumerGroupHandler) ConsumeClaim(session sarama.ConsumerGroupSession, claim sarama.ConsumerGroupClaim) error {
 	for {
 		select {
@@ -140,9 +155,10 @@ func (h *consumerGroupHandler) ConsumeClaim(session sarama.ConsumerGroupSession,
 				// El canal se cerró (rebalanceo o shutdown)
 				return nil
 			}
-			h.messageChannel <- msg
-			// Marcar el offset como procesado para que Kafka no lo reenvíe
-			session.MarkMessage(msg, "")
+			// Enviamos el job SIN marcar el offset todavía.
+			// El worker llamará a session.MarkMessage() una vez que el dato
+			// haya sido persistido en PostgreSQL.
+			h.jobChannel <- &kafkaJob{msg: msg, session: session}
 
 		case <-session.Context().Done():
 			return nil
@@ -154,45 +170,67 @@ func (h *consumerGroupHandler) ConsumeClaim(session sarama.ConsumerGroupSession,
 // WORKER POOL
 // ===========================================================
 
-// worker procesa mensajes del canal y los delega al servicio AIS correspondiente
-func (c *Consumer) worker(id int, wg *sync.WaitGroup, ch <-chan *sarama.ConsumerMessage, staticTopic, dynamicTopic string) {
+// worker procesa jobs del canal y delega al servicio AIS correspondiente.
+// Marca el offset en Kafka (session.MarkMessage) DESPUÉS de persistir en BD,
+// garantizando at-least-once: si el proceso muere antes, Kafka reenviará el mensaje.
+func (c *Consumer) worker(id int, wg *sync.WaitGroup, ch <-chan *kafkaJob, staticTopic, dynamicTopic string) {
 	defer wg.Done()
 
-	for msg := range ch {
-		switch msg.Topic {
+	for job := range ch {
+		var processed bool
+
+		switch job.msg.Topic {
 		case staticTopic:
 			var staticMsg ais.StaticAIS
-			if err := json.Unmarshal(msg.Value, &staticMsg); err != nil {
+			if err := json.Unmarshal(job.msg.Value, &staticMsg); err != nil {
 				log.Printf("❌ [Worker %d] Error parseando estático: %v", id, err)
-				continue
+				job.session.MarkMessage(job.msg, "") // Marcamos el offset para evitar reintentos infinitos de mensajes corruptos
+				continue                             // no marcamos el offset: Kafka reenviará el mensaje
 			}
-			c.processStatic(id, &staticMsg)
+			if err := c.processStatic(id, &staticMsg); err == nil {
+				processed = true
+			}
 
 		case dynamicTopic:
 			var dynamicMsg ais.DynamicAIS
-			if err := json.Unmarshal(msg.Value, &dynamicMsg); err != nil {
+			if err := json.Unmarshal(job.msg.Value, &dynamicMsg); err != nil {
 				log.Printf("❌ [Worker %d] Error parseando dinámico: %v", id, err)
-				continue
+				job.session.MarkMessage(job.msg, "") // Marcamos el offset para evitar reintentos infinitos de mensajes corruptos
+				continue                             // no marcamos el offset: Kafka reenviará el mensaje
 			}
-			c.processDynamic(id, &dynamicMsg)
+			if err := c.processDynamic(id, &dynamicMsg); err == nil {
+				processed = true
+			}
+		}
+
+		// Confirmamos el offset SOLO si el dato fue persistido exitosamente.
+		// Esto garantiza at-least-once delivery.
+		if processed {
+			job.session.MarkMessage(job.msg, "")
 		}
 	}
 }
 
-// processStatic procesa mensajes AIS estáticos
-func (c *Consumer) processStatic(workerID int, msg *ais.StaticAIS) {
+// processStatic procesa mensajes AIS estáticos. Retorna el error para que el worker
+// decida si marcar el offset o no.
+func (c *Consumer) processStatic(workerID int, msg *ais.StaticAIS) error {
 	log.Printf("%s[Worker %d]%s 🚢 Procesando Estático (MMSI: %d)", colorBlue, workerID, colorReset, msg.MMSI)
 
 	if err := c.aisService.ProcessStaticMessage(msg); err != nil {
 		log.Printf("❌ [Worker %d] Error procesando estático: %v", workerID, err)
+		return err
 	}
+	return nil
 }
 
-// processDynamic procesa mensajes AIS dinámicos
-func (c *Consumer) processDynamic(workerID int, msg *ais.DynamicAIS) {
+// processDynamic procesa mensajes AIS dinámicos. Retorna el error para que el worker
+// decida si marcar el offset o no.
+func (c *Consumer) processDynamic(workerID int, msg *ais.DynamicAIS) error {
 	log.Printf("%s[Worker %d]%s 🚢 Procesando Dinámico (MMSI: %d)", colorGreen, workerID, colorReset, msg.MMSI)
 
 	if err := c.aisService.ProcessDynamicMessage(msg); err != nil {
 		log.Printf("❌ [Worker %d] Error procesando dinámico: %v", workerID, err)
+		return err
 	}
+	return nil
 }
