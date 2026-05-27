@@ -1,10 +1,10 @@
 <div align="center">
 
-# MAGI · consumer-service
+# MAGI · backend
 
 **Microservicio de ingesta de datos AIS en tiempo real**
 
-*Parte del sistema [MAGI — Maritime AIS Global Intelligence]*
+*Parte del sistema [MAGI — Monitoreo y Análisis de Gases e Inmisiones]*
 
 ![Go](https://img.shields.io/badge/Go-1.23+-00ADD8?style=flat-square&logo=go&logoColor=white)
 ![Kafka](https://img.shields.io/badge/Kafka-Consumer_Group-231F20?style=flat-square&logo=apachekafka&logoColor=white)
@@ -17,7 +17,7 @@
 
 ## ¿Qué hace este servicio?
 
-`consumer-service` escucha dos tópicos de Apache Kafka con datos del protocolo **AIS** (*Automatic Identification System*) — el estándar internacional de seguimiento de embarcaciones —, los valida, los persiste en PostgreSQL y expone una REST API para consultarlos.
+`MAGI - backend` escucha dos tópicos de Apache Kafka con datos del protocolo **AIS** (*Automatic Identification System*) — el estándar internacional de seguimiento de embarcaciones —, los valida, los persiste en PostgreSQL y expone una REST API para consultarlos.
 
 | Tópico Kafka | Tipo de mensaje | Contenido |
 |---|---|---|
