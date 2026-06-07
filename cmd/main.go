@@ -52,6 +52,12 @@ func main() {
 
 	// 7. Inicializar el Servidor HTTP de Gin para consultas
 	r := gin.Default()
+
+	// Endpoint de salud para monitoreo y Docker HEALTHCHECK
+	r.GET("/health", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"status": "healthy"})
+	})
+
 	ais.NewHandler(r, aisService) // Registramos las rutas del handler de AIS
 
 	// Arrancamos el servidor HTTP en una goroutine para gestionar el cierre ordenado
