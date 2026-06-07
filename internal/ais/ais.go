@@ -9,12 +9,12 @@ import "time"
 // StaticAIS representa la tabla para mensajes AIS estaticos
 type StaticAIS struct {
 	ID        uint
-	MsgType   int
-	IMO       int
-	MMSI      int
-	Callsign  string
-	Shipname  string
-	ShipType  string
+	MsgType   int    `json:"msg_type"`
+	IMO       int    `json:"imo"`
+	MMSI      int    `json:"mmsi"`
+	Callsign  string `json:"callsign"`
+	Shipname  string `json:"shipname"`
+	ShipType  string `json:"ship_type"`
 	CreatedAt time.Time
 	UpdatedAt time.Time
 	Dynamics  []DynamicAIS
@@ -23,21 +23,21 @@ type StaticAIS struct {
 // DynamicAIS representa la tabla para mensajes AIS dinámicos
 type DynamicAIS struct {
 	ID        uint
-	MsgType   int
-	Timestamp string
-	MMSI      int
-	Status    string
-	Turn      float64
-	Speed     float64
-	Accuracy  bool
-	Longitude float64
-	Latitude  float64
-	Course    float64
-	Heading   int
-	Second    int
-	Maneuver  int
-	Raim      bool
-	Radio     int
+	MsgType   int       `json:"msg_type"`
+	Timestamp time.Time `json:"timestamp"`
+	MMSI      int       `json:"mmsi"`
+	Status    string    `json:"status"`
+	Turn      float64   `json:"turn"`
+	Speed     float64   `json:"speed"`
+	Accuracy  bool      `json:"accuracy"`
+	Longitude float64   `json:"lon"`
+	Latitude  float64   `json:"lat"`
+	Course    float64   `json:"course"`
+	Heading   int       `json:"heading"`
+	Second    int       `json:"second"`
+	Maneuver  int       `json:"maneuver"`
+	Raim      bool      `json:"raim"`
+	Radio     int       `json:"radio"`
 	CreatedAt time.Time
 	UpdatedAt time.Time
 }
