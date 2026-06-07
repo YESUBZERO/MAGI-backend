@@ -3,6 +3,7 @@ package ais
 import (
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/gin-gonic/gin"
 )
@@ -34,12 +35,12 @@ type ShipDetailsResponse struct {
 
 // DynamicHistoryResponse returna el historial de movimientos de un barco
 type DynamicHistoryResponse struct {
-	Timestamp string  `json:"timestamp"`
-	Latitude  float64 `json:"latitude"`
-	Longitude float64 `json:"longitude"`
-	Status    string  `json:"status"`
-	Speed     float64 `json:"speed_knots"`
-	Course    float64 `json:"course"`
+	Timestamp time.Time `json:"timestamp"`
+	Latitude  float64   `json:"latitude"`
+	Longitude float64   `json:"longitude"`
+	Status    string    `json:"status"`
+	Speed     float64   `json:"speed_knots"`
+	Course    float64   `json:"course"`
 }
 
 // =========================================================================
