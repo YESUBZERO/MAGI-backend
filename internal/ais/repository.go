@@ -29,10 +29,10 @@ type DBStaticAIS struct {
 // El índice único compuesto (MMSI, Timestamp) garantiza idempotencia:
 // si Kafka reenvía un mensaje ya procesado, el INSERT se ignora sin error.
 type DBDynamicAIS struct {
-	ID        uint   `gorm:"primaryKey"`
+	ID        uint `gorm:"primaryKey"`
 	MsgType   int
-	Timestamp string `gorm:"uniqueIndex:idx_dynamic_mmsi_timestamp"`
-	MMSI      int    `gorm:"uniqueIndex:idx_dynamic_mmsi_timestamp"`
+	Timestamp time.Time `gorm:"uniqueIndex:idx_dynamic_mmsi_timestamp"`
+	MMSI      int       `gorm:"uniqueIndex:idx_dynamic_mmsi_timestamp"`
 	Status    string
 	Turn      float64
 	Speed     float64
