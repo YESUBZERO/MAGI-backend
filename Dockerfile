@@ -4,7 +4,7 @@
 # mientras que TARGETOS/TARGETARCH definen el binario final (cross-compile).
 # Soporta: linux/amd64 y linux/arm64
 # =============================================================================
-FROM --platform=$BUILDPLATFORM golang:1.23.5-alpine3.21 AS builder
+FROM --platform=$BUILDPLATFORM golang:1.25.0-alpine3.21 AS builder
 
 # Argumentos inyectados automáticamente por Docker BuildKit
 ARG TARGETOS
