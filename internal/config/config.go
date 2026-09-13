@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"log"
+	"os"
 
 	"github.com/joho/godotenv"
 	"github.com/kelseyhightower/envconfig"
@@ -10,8 +11,14 @@ import (
 
 // Configuración principal del servicio
 type Config struct {
-	Kafka KafkaConfig
-	DB    DatabaseConfig
+	Kafka  KafkaConfig
+	DB     DatabaseConfig
+	Server ServerConfig
+}
+
+// ServerConfig representa la configuración del servidor HTTP
+type ServerConfig struct {
+	Port string `envconfig:"PORT" default:"8080"`
 }
 
 // Configuración de Kafka
@@ -47,6 +54,17 @@ func (c *Config) GetDSN() string {
 	return c.DB.DSN
 }
 
+// GetServerPort devuelve el puerto configurado asegurando el formato ":puerto"
+func (c *Config) GetServerPort() string {
+	if c.Server.Port == "" {
+		return ":8080"
+	}
+	if c.Server.Port[0] == ':' {
+		return c.Server.Port
+	}
+	return ":" + c.Server.Port
+}
+
 // Validate verifica que los campos esenciales no esten vacios
 func (c *Config) validate() error {
 	if len(c.Kafka.Brokers) == 0 {
@@ -67,23 +85,69 @@ func (c *Config) validate() error {
 	return nil
 }
 
-// LoadConfig es un helper para mantener compatibilidad o carga simple
-func Load() (*Config, error) {
+// APIConfig representa la configuración exclusiva requerida por el microservicio HTTP de consultas
+type APIConfig struct {
+	DB     DatabaseConfig
+	Server ServerConfig
+}
 
-	// 1. Intentar cargar el archivo .env si existe (Solo para desarrollo)
-	if err := godotenv.Load(); err != nil {
-		log.Println("error cargando archivo .env: %w", err)
+// GetDSN devuelve el DSN de la base de datos para la API
+func (c *APIConfig) GetDSN() string {
+	return c.DB.DSN
+}
+
+// GetServerPort devuelve el puerto configurado asegurando el formato ":puerto"
+func (c *APIConfig) GetServerPort() string {
+	if c.Server.Port == "" {
+		return ":8080"
 	}
+	if c.Server.Port[0] == ':' {
+		return c.Server.Port
+	}
+	return ":" + c.Server.Port
+}
+
+func loadDotEnv() {
+	if err := godotenv.Load(); err != nil {
+		if !os.IsNotExist(err) {
+			log.Printf("ℹ️ Nota sobre archivo .env: %v", err)
+		}
+	}
+}
+
+// LoadAPI carga y valida exclusivamente las variables necesarias para el servidor HTTP (DATABASE_DSN y PORT)
+func LoadAPI() (*APIConfig, error) {
+	loadDotEnv()
+
+	cfg := &APIConfig{}
+	if err := envconfig.Process("", cfg); err != nil {
+		return nil, fmt.Errorf("error mapeando variables de entorno de la API: %w", err)
+	}
+
+	if cfg.DB.DSN == "" {
+		return nil, fmt.Errorf("DATABASE_DSN is required")
+	}
+
+	return cfg, nil
+}
+
+// LoadWorker carga la configuración requerida para el ingestor de Kafka (brokers, tópicos y DSN)
+func LoadWorker() (*Config, error) {
+	return Load()
+}
+
+// Load es el cargador general para el worker y compatibilidad
+func Load() (*Config, error) {
+	loadDotEnv()
 
 	cfg := &Config{}
 
-	// 2. Mapear las variables de entorno a la estructura Config
-	//    Usamos envconfig para facilitar el mapeo y validación de variables de entorno
+	// Mapear las variables de entorno a la estructura Config
 	if err := envconfig.Process("", cfg); err != nil {
 		return nil, fmt.Errorf("error mapeando variables de entorno: %w", err)
 	}
 
-	// 3. Validar la configuración cargada
+	// Validar la configuración cargada
 	if err := cfg.validate(); err != nil {
 		return nil, fmt.Errorf("la validación de configuración falló: %w", err)
 	}

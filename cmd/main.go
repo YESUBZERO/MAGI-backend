@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
@@ -46,28 +47,55 @@ func main() {
 	// 6. Iniciar el consumidor de Kafka
 	consumer := kafka.NewConsumer(cfg, aisService)
 	log.Println("📡 [MAGI-CORE] Iniciando workers concurrentes de Kafka...")
-	// Lo ejecutamos en una goroutine para no bloquear el hilo principal
-	// Esto nos permite levantar el servidor HTTP para consultas
-	go consumer.Start(ctx)
+	var consumerWg sync.WaitGroup
+	consumerWg.Add(1)
+	go func() {
+		defer consumerWg.Done()
+		consumer.Start(ctx)
+	}()
 
 	// 7. Inicializar el Servidor HTTP de Gin para consultas
 	r := gin.Default()
 
-	// Endpoint de salud para monitoreo y Docker HEALTHCHECK
+	// Endpoint de salud profundo para monitoreo y Docker HEALTHCHECK (valida conectividad con BD)
 	r.GET("/health", func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{"status": "healthy"})
+		sqlDB, err := db.DB()
+		if err != nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{
+				"status": "unhealthy",
+				"error":  "error al acceder a la instancia de base de datos",
+			})
+			return
+		}
+
+		pingCtx, cancel := context.WithTimeout(c.Request.Context(), 2*time.Second)
+		defer cancel()
+
+		if err := sqlDB.PingContext(pingCtx); err != nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{
+				"status": "unhealthy",
+				"error":  "base de datos no responde al ping",
+			})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"status":   "healthy",
+			"database": "connected",
+		})
 	})
 
-	ais.NewHandler(r, aisService) // Registramos las rutas del handler de AIS
+	ais.NewHandler(r, aisService, aisService) // Registramos las rutas del handler de AIS (consultas e ingesta)
 
+	serverPort := cfg.GetServerPort()
 	// Arrancamos el servidor HTTP en una goroutine para gestionar el cierre ordenado
 	srv := &http.Server{
-		Addr:    ":8080",
+		Addr:    serverPort,
 		Handler: r,
 	}
 
 	go func() {
-		log.Println("🚀 [MAGI-CORE] Servidor HTTP escuchando en el puerto :8080")
+		log.Printf("🚀 [MAGI-CORE] Servidor HTTP escuchando en el puerto %s", serverPort)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("❌ Error en el servidor HTTP: %v", err)
 		}
@@ -87,6 +115,9 @@ func main() {
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		log.Printf("⚠️ Error durante el cierre del servidor HTTP: %v", err)
 	}
+
+	// Esperar que los workers y el consumidor de Kafka finalicen limpiamente
+	consumerWg.Wait()
 
 	log.Println("✅ [MAGI-CORE] Sistema completamente apagado.")
 }

@@ -11,12 +11,7 @@ import (
 )
 
 // WorkerPool define la cantidad de workers concurrentes
-const (
-	colorReset = "\033[0m"
-	colorGreen = "\033[32m"
-	colorBlue  = "\033[34m"
-	WorkerPool = 5
-)
+const WorkerPool = 5
 
 // ===========================================================
 // INTERFAZ DE CONFIGURACIÓN
@@ -36,11 +31,11 @@ type KafkaConfigReader interface {
 // Consumer orquesta el Consumer Group de Kafka y el worker pool
 type Consumer struct {
 	cfg        KafkaConfigReader
-	aisService ais.Service
+	aisService ais.IngestionService
 }
 
 // NewConsumer crea un nuevo Consumer
-func NewConsumer(cr KafkaConfigReader, as ais.Service) *Consumer {
+func NewConsumer(cr KafkaConfigReader, as ais.IngestionService) *Consumer {
 	return &Consumer{
 		cfg:        cr,
 		aisService: as,
@@ -87,7 +82,9 @@ func (c *Consumer) Start(ctx context.Context) {
 	log.Printf("📡 [MAGI-CORE] Consumer Group '%s' escuchando tópicos: %v", groupID, topics)
 
 	// 5. Loop de consume — se relanza tras cada rebalanceo del grupo
+	consumerDone := make(chan struct{})
 	go func() {
+		defer close(consumerDone)
 		for {
 			// Consume() bloquea hasta que el contexto se cancele o haya un rebalanceo.
 			// Tras un rebalanceo el loop vuelve a llamar Consume() automáticamente.
@@ -104,6 +101,11 @@ func (c *Consumer) Start(ctx context.Context) {
 	// 6. Esperar la señal de cierre
 	<-ctx.Done()
 	log.Println("🛑 Apagando Consumer Group de Kafka de forma segura...")
+
+	// Esperar que el loop de group.Consume finalice limpiamente antes de cerrar el canal de trabajos
+	<-consumerDone
+
+	// Cerrar el canal de jobs únicamente cuando no haya más goroutines de Sarama enviando mensajes
 	close(jobChannel)
 	wg.Wait()
 	log.Println("✅ Todos los workers de Kafka han terminado.")
@@ -155,10 +157,13 @@ func (h *consumerGroupHandler) ConsumeClaim(session sarama.ConsumerGroupSession,
 				// El canal se cerró (rebalanceo o shutdown)
 				return nil
 			}
-			// Enviamos el job SIN marcar el offset todavía.
-			// El worker llamará a session.MarkMessage() una vez que el dato
-			// haya sido persistido en PostgreSQL.
-			h.jobChannel <- &kafkaJob{msg: msg, session: session}
+			// Enviamos el job respetando la cancelación de la sesión
+			// para no bloquear indefinidamente si el canal de jobs está lleno.
+			select {
+			case h.jobChannel <- &kafkaJob{msg: msg, session: session}:
+			case <-session.Context().Done():
+				return nil
+			}
 
 		case <-session.Context().Done():
 			return nil
@@ -183,9 +188,9 @@ func (c *Consumer) worker(id int, wg *sync.WaitGroup, ch <-chan *kafkaJob, stati
 		case staticTopic:
 			var staticMsg ais.StaticAIS
 			if err := json.Unmarshal(job.msg.Value, &staticMsg); err != nil {
-				log.Printf("❌ [Worker %d] Error parseando estático: %v", id, err)
-				job.session.MarkMessage(job.msg, "") // Marcamos el offset para evitar reintentos infinitos de mensajes corruptos
-				continue                             // no marcamos el offset: Kafka reenviará el mensaje
+				log.Printf("❌ [Worker %d] Error parseando estático: %v. Mensaje descartado.", id, err)
+				job.session.MarkMessage(job.msg, "") // Marcamos el offset para descartar mensaje corrupto y evitar reintentos infinitos
+				continue
 			}
 			if err := c.processStatic(id, &staticMsg); err == nil {
 				processed = true
@@ -194,9 +199,9 @@ func (c *Consumer) worker(id int, wg *sync.WaitGroup, ch <-chan *kafkaJob, stati
 		case dynamicTopic:
 			var dynamicMsg ais.DynamicAIS
 			if err := json.Unmarshal(job.msg.Value, &dynamicMsg); err != nil {
-				log.Printf("❌ [Worker %d] Error parseando dinámico: %v", id, err)
-				job.session.MarkMessage(job.msg, "") // Marcamos el offset para evitar reintentos infinitos de mensajes corruptos
-				continue                             // no marcamos el offset: Kafka reenviará el mensaje
+				log.Printf("❌ [Worker %d] Error parseando dinámico: %v. Mensaje descartado.", id, err)
+				job.session.MarkMessage(job.msg, "") // Marcamos el offset para descartar mensaje corrupto y evitar reintentos infinitos
+				continue
 			}
 			if err := c.processDynamic(id, &dynamicMsg); err == nil {
 				processed = true
@@ -214,7 +219,7 @@ func (c *Consumer) worker(id int, wg *sync.WaitGroup, ch <-chan *kafkaJob, stati
 // processStatic procesa mensajes AIS estáticos. Retorna el error para que el worker
 // decida si marcar el offset o no.
 func (c *Consumer) processStatic(workerID int, msg *ais.StaticAIS) error {
-	log.Printf("%s[Worker %d]%s 🚢 Procesando Estático (MMSI: %d)", colorBlue, workerID, colorReset, msg.MMSI)
+	log.Printf("[Worker %d] 🚢 Procesando Estático (MMSI: %d)", workerID, msg.MMSI)
 
 	if err := c.aisService.ProcessStaticMessage(msg); err != nil {
 		log.Printf("❌ [Worker %d] Error procesando estático: %v", workerID, err)
@@ -226,7 +231,7 @@ func (c *Consumer) processStatic(workerID int, msg *ais.StaticAIS) error {
 // processDynamic procesa mensajes AIS dinámicos. Retorna el error para que el worker
 // decida si marcar el offset o no.
 func (c *Consumer) processDynamic(workerID int, msg *ais.DynamicAIS) error {
-	log.Printf("%s[Worker %d]%s 🚢 Procesando Dinámico (MMSI: %d)", colorGreen, workerID, colorReset, msg.MMSI)
+	log.Printf("[Worker %d] 🚢 Procesando Dinámico (MMSI: %d)", workerID, msg.MMSI)
 
 	if err := c.aisService.ProcessDynamicMessage(msg); err != nil {
 		log.Printf("❌ [Worker %d] Error procesando dinámico: %v", workerID, err)

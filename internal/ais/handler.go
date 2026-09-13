@@ -1,6 +1,7 @@
 package ais
 
 import (
+	"errors"
 	"net/http"
 	"strconv"
 	"time"
@@ -49,17 +50,27 @@ type DynamicHistoryResponse struct {
 
 // Definimos los atributos del handler
 type Handler struct {
-	service Service
+	queryService     QueryService
+	ingestionService IngestionService
 }
 
-func NewHandler(r *gin.Engine, s Service) {
-	h := &Handler{service: s}
+func NewHandler(r *gin.Engine, q QueryService, ing ...IngestionService) *Handler {
+	h := &Handler{queryService: q}
+	if len(ing) > 0 {
+		h.ingestionService = ing[0]
+	}
 
 	routes := r.Group("/api/v1")
 	{
-		routes.POST("/static", h.CreateStaticMessage)
-		routes.GET("/ship/:imo", h.GetShipByIMO)
+		if h.ingestionService != nil {
+			routes.POST("/static", h.CreateStaticMessage)
+		}
+		if h.queryService != nil {
+			routes.GET("/ship/:imo", h.GetShipByIMO)
+			routes.GET("/ship/mmsi/:mmsi", h.GetShipByMMSI)
+		}
 	}
+	return h
 }
 
 // CreateStaticMessage maneja la creación/actualizacion via HTTP
@@ -68,7 +79,7 @@ func (h *Handler) CreateStaticMessage(c *gin.Context) {
 
 	// 1. Validar las propiedades del request
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "datos inválidos" + err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "datos inválidos: " + err.Error()})
 		return
 	}
 
@@ -83,7 +94,11 @@ func (h *Handler) CreateStaticMessage(c *gin.Context) {
 	}
 
 	// 3. Delegamos al servicio ProcessStaticMessage
-	if err := h.service.ProcessStaticMessage(msg); err != nil {
+	if h.ingestionService == nil {
+		c.JSON(http.StatusNotImplemented, gin.H{"error": "módulo de ingesta no disponible"})
+		return
+	}
+	if err := h.ingestionService.ProcessStaticMessage(msg); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -95,19 +110,85 @@ func (h *Handler) CreateStaticMessage(c *gin.Context) {
 func (h *Handler) GetShipByIMO(c *gin.Context) {
 
 	// 1. Validamos el parametro recibido de la ruta
-	immoParam := c.Param("imo")
-	immo, err := strconv.Atoi(immoParam)
+	imoParam := c.Param("imo")
+	imo, err := strconv.Atoi(imoParam)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "el IMO debe ser un número válido"})
 		return
 	}
 
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "50"))
+	offset, _ := strconv.Atoi(c.DefaultQuery("offset", "0"))
+
 	// 2. Llamar al servicio GetShipByIMO
-	ship, err := h.service.GetShipByIMO(immo)
-	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+	if h.queryService == nil {
+		c.JSON(http.StatusNotImplemented, gin.H{"error": "módulo de consultas no disponible"})
 		return
 	}
+	ship, err := h.queryService.GetShipByIMO(imo, limit, offset)
+	if err != nil {
+		if errors.Is(err, ErrShipNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "error interno consultando el buque: " + err.Error()})
+		return
+	}
+	// 3. Mapear la entidad de dominio al DTO de Response
+	historyResponse := make([]DynamicHistoryResponse, len(ship.Dynamics))
+	for i, d := range ship.Dynamics {
+		historyResponse[i] = DynamicHistoryResponse{
+			Timestamp: d.Timestamp,
+			Longitude: d.Longitude,
+			Latitude:  d.Latitude,
+			Status:    d.Status,
+			Speed:     d.Speed,
+			Course:    d.Course,
+		}
+	}
+
+	res := ShipDetailsResponse{
+		IMO:        ship.IMO,
+		MMSI:       ship.MMSI,
+		Callsign:   ship.Callsign,
+		Shipname:   ship.Shipname,
+		ShipType:   ship.ShipType,
+		TotalSpots: len(ship.Dynamics),
+		History:    historyResponse,
+	}
+
+	// 4. Confirmamos la respuesta status 200
+	c.JSON(http.StatusOK, res)
+}
+
+func (h *Handler) GetShipByMMSI(c *gin.Context) {
+
+	// 1. Validamos el parametro recibido de la ruta
+	mmsiParam := c.Param("mmsi")
+	mmsi, err := strconv.Atoi(mmsiParam)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "el MMSI debe ser un número válido"})
+		return
+	}
+
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "50"))
+	offset, _ := strconv.Atoi(c.DefaultQuery("offset", "0"))
+
+	// 2. Llamar al servicio GetShipByMMSI
+	if h.queryService == nil {
+		c.JSON(http.StatusNotImplemented, gin.H{"error": "módulo de consultas no disponible"})
+		return
+	}
+	ship, err := h.queryService.GetShipByMMSI(mmsi, limit, offset)
+	if err != nil {
+		if errors.Is(err, ErrShipNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "error interno consultando el buque: " + err.Error()})
+		return
+	}
+
 	// 3. Mapear la entidad de dominio al DTO de Response
 	historyResponse := make([]DynamicHistoryResponse, len(ship.Dynamics))
 	for i, d := range ship.Dynamics {

@@ -26,34 +26,40 @@
 
 ---
 
-## Arquitectura
+## Arquitectura y Segregación CQRS
 
-El servicio implementa una arquitectura de **capas limpias** donde cada capa solo conoce la interfaz de la inferior, nunca su implementación concreta.
+El sistema adopta el patrón **CQRS (*Command Query Responsibility Segregation*)**, desacoplando el flujo de ingesta del flujo de consulta en dos microservicios independientes que comparten los paquetes internos de persistencia y dominio:
+
+1. **Microservicio Ingestor (`magi-worker` · `cmd/worker`):** Ingesta continua, validaciones de reglas marítimas (ITU-R M.1371) y persistencia atómica en PostgreSQL. No expone puertos web públicos.
+2. **Microservicio de Consultas (`magi-api` · `cmd/api`):** Servidor HTTP REST (Gin) con paginación defensiva, telemetría histórica y endpoint de salud `/health`. No se conecta a Kafka.
 
 ```
-┌─────────────────────────────────────────────────────────────────────┐
-│                        consumer-service                             │
-│                                                                     │
-│   Kafka Broker                                                      │
-│   ┌──────────┐    ┌─────────────────────────────────────────────┐   │
-│   │ ais.     │    │  kafka.ConsumerGroup                        │   │
-│   │ static   │───▶│                                             │   │
-│   ├──────────┤    │  ConsumeClaim() ──▶ chan *kafkaJob (x500)   │   │
-│   │ ais.     │    │                           │                 │   │
-│   │ dynamic  │───▶│  Worker Pool (x5) ◀───────┘                 │   │
-│   └──────────┘    └──────────────┬──────────────────────────────┘   │
-│                                  │                                  │
-│                    ┌─────────────▼──────────────┐                   │
-│   HTTP Client      │       ais.Service          │                   │
-│   ┌──────────┐     │  (validaciones de dominio) │                   │
-│   │ REST API │────▶│                            │                   │
-│   └──────────┘     └─────────────┬──────────────┘                   │
-│                                  │                                  │
-│                    ┌─────────────▼──────────────┐                   │
-│                    │      ais.Repository        │                   │
-│                    │  (GORM · PostgreSQL)       │                   │
-│                    └────────────────────────────┘                   │
-└─────────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                             MAGI - BACKEND (CQRS)                           │
+│                                                                             │
+│  [ WRITE PATH: magi-worker ]                                                │
+│  Kafka Topics                                                               │
+│  ┌──────────┐      ┌──────────────────────────────────────────────┐         │
+│  │ais.static│───┐  │  kafka.ConsumerGroup                         │         │
+│  ├──────────┤   │  │    ConsumeClaim() ──▶ chan *kafkaJob (x500)  │         │
+│  │ais.dynam │───┼─▶│                             │                │         │
+│  └──────────┘   │  │    Worker Pool (x5) ◀───────┘                │         │
+│                 │  └──────────────┬───────────────────────────────┘         │
+│                 │                 ▼                                         │
+│                 │       ais.IngestionService                                │
+│                 │                 │                                         │
+│                 │                 ▼                                         │
+│                 │           ais.Repository (Write)                          │
+│                 │                 │ (INSERT ON CONFLICT DO NOTHING)         │
+│                 │                 ▼                                         │
+│                 │          [( PostgreSQL )]                                 │
+│                 │                 ▲                                         │
+│  [ READ PATH: magi-api ]          │                                         │
+│  HTTP Clients                     │ (SELECT ORDER BY timestamp DESC LIMIT)  │
+│  ┌──────────┐                     │                                         │
+│  │ REST API │──▶ Gin Server ──▶ ais.QueryService ──▶ ais.Repository (Read)  │
+│  └──────────┘     (:8080)                                                   │
+└─────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ### Garantía de entrega — *at-least-once*
@@ -67,7 +73,7 @@ El offset de Kafka **solo se commitea después** de que el dato ha sido persisti
 | Dependencia | Versión | Rol |
 |---|---|---|
 | [IBM/sarama](https://github.com/IBM/sarama) | v1.45.0 | Cliente Kafka — Consumer Group |
-| [gin-gonic/gin](https://github.com/gin-gonic/gin) | v1.12.0 | Framework HTTP |
+| [gin-gonic/gin](https://github.com/gin-gonic/gin) | v1.12.0 | Framework HTTP para API REST |
 | [gorm.io/gorm](https://gorm.io) | v1.25.12 | ORM — PostgreSQL |
 | [kelseyhightower/envconfig](https://github.com/kelseyhightower/envconfig) | v1.4.0 | Configuración por variables de entorno |
 
@@ -78,26 +84,33 @@ El offset de Kafka **solo se commitea después** de que el dato ha sido persisti
 ```
 consumer-service/
 ├── cmd/
-│   └── main.go                  # Wiring de dependencias y arranque del proceso
+│   ├── api/
+│   │   └── main.go              # Microservicio de Consultas HTTP REST (Read Path)
+│   ├── worker/
+│   │   └── main.go              # Microservicio Ingestor de Kafka (Write Path)
+│   └── main.go                  # Entrypoint monolítico unificado (desarrollo local)
 │
 ├── internal/
 │   ├── ais/
-│   │   ├── ais.go               # Modelos de dominio: StaticAIS, DynamicAIS
-│   │   ├── handler.go           # Controlador HTTP: DTOs de request/response + rutas
-│   │   ├── repository.go        # Capa de datos: modelos GORM + consultas PostgreSQL
-│   │   └── service.go           # Lógica de negocio y validaciones de dominio
+│   │   ├── ais.go               # Modelos de dominio y errores centinela (ErrShipNotFound)
+│   │   ├── handler.go           # Controlador HTTP: DTOs, validaciones y rutas
+│   │   ├── repository.go        # Persistencia GORM con inserción atómica y paginación
+│   │   └── service.go           # Interfaces segregadas: IngestionService y QueryService
 │   │
 │   ├── config/
-│   │   └── config.go            # Carga y validación de variables de entorno
+│   │   └── config.go            # Carga modular: LoadAPI() y LoadWorker()
 │   │
 │   ├── database/
-│   │   └── postgres.go          # Inicialización de la conexión y pool de conexiones
+│   │   └── postgres.go          # Pool de conexiones SQL nativo y logger Warn
 │   │
 │   └── kafka/
-│       └── consumer.go          # Consumer Group · worker pool · at-least-once delivery
-│      
+│       └── consumer.go          # Consumer Group · worker pool · graceful drain
 │
-├── Dockerfile                   # Build multi-stage: builder (golang:alpine) + runtime (alpine)
+├── scripts/
+│   └── entrypoint.sh            # Dispatcher de roles en contenedor (api | worker | monolith)
+│
+├── Dockerfile                   # Build multi-stage multi-binario
+├── docker-compose.yml           # Orquestación completa (PostgreSQL, Kafka KRaft, API y Worker)
 ├── go.mod
 └── go.sum
 ```
@@ -108,24 +121,32 @@ consumer-service/
 
 El servicio se configura **exclusivamente por variables de entorno**. No se requiere ningún archivo de configuración en producción.
 
-| Variable | Requerida | Descripción | Ejemplo |
-|---|---|---|---|
-| `KAFKA_BROKERS` | ✅ | Lista de brokers (separados por coma) | `kafka:9092` |
+### Variables para `magi-api` (Consultas)
+| Variable | Obligatoria | Descripción | Valor por defecto |
+|---|:---:|---|---|
+| `DATABASE_DSN` | ✅ | Cadena de conexión PostgreSQL | — |
+| `PORT` | ❌ | Puerto de escucha HTTP | `8080` |
+
+### Variables para `magi-worker` (Ingestor)
+| Variable | Obligatoria | Descripción | Valor por defecto |
+|---|:---:|---|---|
+| `DATABASE_DSN` | ✅ | Cadena de conexión PostgreSQL | — |
+| `KAFKA_BROKERS` | ✅ | Lista de brokers de Kafka separados por comas | — |
 | `KAFKA_STATIC_TOPIC` | ✅ | Tópico de mensajes AIS estáticos | `ais.static` |
 | `KAFKA_DYNAMIC_TOPIC` | ✅ | Tópico de mensajes AIS dinámicos | `ais.dynamic` |
 | `KAFKA_GROUP_ID` | ✅ | Consumer Group ID | `magi-consumer-group` |
-| `DATABASE_DSN` | ✅ | DSN de conexión a PostgreSQL | `host=db user=magi password=secret dbname=magi port=5432 sslmode=disable` |
 
 > Para desarrollo local, crea un archivo `.env` en la raíz (ya excluido en `.gitignore`) y expórtalo antes de ejecutar el binario.
 
 ### Ejemplo `.env`
 
 ```env
+DATABASE_DSN=host=localhost user=magi password=secret dbname=magi port=5432 sslmode=disable
+PORT=8080
 KAFKA_BROKERS=localhost:9092
 KAFKA_STATIC_TOPIC=ais.static
 KAFKA_DYNAMIC_TOPIC=ais.dynamic
 KAFKA_GROUP_ID=magi-consumer-group
-DATABASE_DSN=host=localhost user=magi password=secret dbname=magi port=5432 sslmode=disable
 ```
 
 ---
@@ -139,54 +160,58 @@ DATABASE_DSN=host=localhost user=magi password=secret dbname=magi port=5432 sslm
 - Apache Kafka con los tópicos `ais.static` y `ais.dynamic` creados
 
 ```bash
-# Clonar el repositorio
-git clone https://github.com/YESUBZERO/MAGI-consumer.git
-cd MAGI-consumer
-
-# Exportar variables de entorno (o usar un .env)
+# 1. Exportar variables de entorno (o usar un .env)
 export $(cat .env | xargs)
 
-# Descargar dependencias
-go mod download
+# 2. Ejecutar la API de consultas (Terminal 1)
+go run ./cmd/api/main.go
 
-# Ejecutar
+# 3. Ejecutar el Ingestor de Kafka (Terminal 2)
+go run ./cmd/worker/main.go
+
+# (Opcional) Ejecutar todo en un único proceso
 go run ./cmd/main.go
-```
-
-El servicio arrancará e imprimirá en consola:
-
-```
-✅ [MAGI-CORE] Conexión a PostgreSQL establecida con éxito y pool configurado.
-🔄 Ejecutando migraciones de base de datos...
-📡 [MAGI-CORE] Consumer Group 'magi-consumer-group' escuchando tópicos: [ais.static ais.dynamic]
-🚀 [MAGI-CORE] Servidor HTTP escuchando en el puerto :8080
-🚢 [MAGI-CORE] Todos los servicios en marcha. Presiona Ctrl+C para detener.
 ```
 
 ---
 
-## Docker
+## Docker y Docker Compose
 
-### Build
+### Orquestación completa con Docker Compose (Recomendado)
+
+Levanta PostgreSQL 16, Apache Kafka (KRaft mode sin Zookeeper), el microservicio de consultas `magi-api` y el ingestor `magi-worker`:
 
 ```bash
-docker build -t magi/consumer-service:latest .
+docker compose up -d
 ```
 
-El Dockerfile usa un **build multi-stage**: la imagen final es Alpine mínima (~10 MB) y el binario se ejecuta con un usuario sin privilegios (`appuser`).
+Verificar el estado de los servicios:
+```bash
+docker compose ps
+```
 
-### Run
+### Build y Ejecución Manual con Docker
 
 ```bash
+# 1. Construir la imagen multi-binario
+docker build -t magi/backend:latest .
+
+# 2. Ejecutar la API HTTP (Read Path)
 docker run -d \
-  --name magi-consumer \
+  --name magi-api \
   -p 8080:8080 \
+  -e DATABASE_DSN="host=db user=magi password=secret dbname=magi port=5432 sslmode=disable" \
+  magi/backend:latest api
+
+# 3. Ejecutar el Ingestor de Kafka (Write Path)
+docker run -d \
+  --name magi-worker \
   -e KAFKA_BROKERS=kafka:9092 \
   -e KAFKA_STATIC_TOPIC=ais.static \
   -e KAFKA_DYNAMIC_TOPIC=ais.dynamic \
   -e KAFKA_GROUP_ID=magi-consumer-group \
   -e DATABASE_DSN="host=db user=magi password=secret dbname=magi port=5432 sslmode=disable" \
-  magi/consumer-service:latest
+  magi/backend:latest worker
 ```
 
 ---
@@ -220,15 +245,44 @@ Crea o actualiza los datos estáticos de un buque. Equivale al flujo que hace el
 
 ---
 
+### `GET /health` — Monitoreo y Health Check
+
+Valida el estado del servicio y la conectividad real con PostgreSQL (`Ping`).
+
+**Response** `200 OK`
+```json
+{
+  "status": "healthy",
+  "database": "connected"
+}
+```
+
+**Response** `503 Service Unavailable` (Fallo de base de datos)
+```json
+{
+  "status": "unhealthy",
+  "error": "base de datos no responde al ping"
+}
+```
+
+---
+
 ### `GET /ship/:imo` — Consultar buque por IMO
 
-Devuelve la información completa del buque y todo su historial de posiciones registradas.
+Devuelve la información del buque y su historial de posiciones paginado (orden cronológico inverso).
 
 **Parámetros de ruta**
 
 | Param | Tipo | Descripción |
 |---|---|---|
 | `imo` | `int` | Número IMO del buque (7 dígitos) |
+
+**Parámetros de consulta (Query Params)**
+
+| Param | Tipo | Default | Descripción |
+|---|---|---|---|
+| `limit` | `int` | `50` | Máximo de posiciones a retornar (Tope: 500) |
+| `offset` | `int` | `0` | Desplazamiento para paginación |
 
 **Response** `200 OK`
 ```json
@@ -238,7 +292,7 @@ Devuelve la información completa del buque y todo su historial de posiciones re
   "callsign": "A8IG4",
   "shipname": "EVER GIVEN",
   "ship_type": "Container Ship",
-  "total_positions_recorded": 3,
+  "total_positions_recorded": 1,
   "position_history": [
     {
       "timestamp": "2024-03-21T07:04:00Z",
@@ -258,6 +312,21 @@ Devuelve la información completa del buque y todo su historial de posiciones re
 |---|---|
 | `400` | IMO no es un número válido |
 | `404` | Buque no encontrado |
+| `500` | Error interno de base de datos |
+
+---
+
+### `GET /ship/mmsi/:mmsi` — Consultar buque por MMSI
+
+Devuelve la información del buque y su historial de telemetría paginado a partir de su identificador MMSI.
+
+**Parámetros de ruta**
+
+| Param | Tipo | Descripción |
+|---|---|---|
+| `mmsi` | `int` | Código MMSI del buque (9 dígitos) |
+
+**Parámetros de consulta (Query Params):** `limit` (default: 50), `offset` (default: 0).
 
 ---
 
