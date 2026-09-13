@@ -15,18 +15,35 @@ RUN apk add --no-cache git ca-certificates tzdata
 
 WORKDIR /app
 
-# Copiar manifiestos de módulos primero para aprovechar la caché de capas.
-# Las dependencias solo se re-descargan si go.mod o go.sum cambian.
+# Copiar manifiestos de módulos primero para aprovechar la caché de capas
 COPY go.mod go.sum ./
 RUN go mod download && go mod verify
 
-# Copiar el código fuente
+# Copiar el código fuente completo
 COPY . .
 
-# Compilar el binario con cross-compilation habilitada.
-# CGO_ENABLED=0  → binario estático sin dependencias de libc (compatible con scratch/alpine).
-# -trimpath     → elimina rutas absolutas del binario (reproducibilidad).
-# -ldflags      → reduce el tamaño eliminando información de debug y el símbolo de tabla.
+# Compilar los binarios con cross-compilation habilitada:
+# 1. magi-api: Microservicio de consultas HTTP (CQRS Read Path)
+# 2. magi-worker: Microservicio ingestor de Kafka (CQRS Write Path)
+# 3. magi-service: Binario conjunto unificado (cmd/main.go para desarrollo)
+RUN CGO_ENABLED=0 \
+    GOOS=${TARGETOS} \
+    GOARCH=${TARGETARCH} \
+    go build \
+      -trimpath \
+      -ldflags="-s -w" \
+      -o /magi-api \
+      ./cmd/api/main.go
+
+RUN CGO_ENABLED=0 \
+    GOOS=${TARGETOS} \
+    GOARCH=${TARGETARCH} \
+    go build \
+      -trimpath \
+      -ldflags="-s -w" \
+      -o /magi-worker \
+      ./cmd/worker/main.go
+
 RUN CGO_ENABLED=0 \
     GOOS=${TARGETOS} \
     GOARCH=${TARGETARCH} \
@@ -37,19 +54,18 @@ RUN CGO_ENABLED=0 \
       ./cmd/main.go
 
 # =============================================================================
-# Etapa 2: Imagen de ejecución (runtime)
-# Se fija la versión de Alpine para builds reproducibles y deterministas.
+# Etapa 2: Imagen de ejecución (runtime unificado con soporte CQRS)
 # =============================================================================
 FROM alpine:3.21
 
 # Metadatos OCI para trazabilidad en registros de contenedores
-LABEL org.opencontainers.image.title="MAGI Service" \
-      org.opencontainers.image.description="Servicio consumidor de Kafka con API HTTP para el proyecto MAGI" \
+LABEL org.opencontainers.image.title="MAGI Backend Service" \
+      org.opencontainers.image.description="Microservicios CQRS de ingesta Kafka (worker) y consultas HTTP (api) para el proyecto MAGI" \
       org.opencontainers.image.source="https://github.com/YESUBZERO/MAGI-backend" \
       org.opencontainers.image.licenses="MIT"
 
-# Certificados CA y zona horaria (necesarios para conexiones TLS y logs correctos)
-RUN apk add --no-cache ca-certificates tzdata && \
+# Certificados CA, zona horaria y procps para monitoreo de procesos
+RUN apk add --no-cache ca-certificates tzdata procps && \
     # Crear usuario y grupo sin privilegios
     addgroup -S appgroup && \
     adduser -S appuser -G appgroup
@@ -57,18 +73,27 @@ RUN apk add --no-cache ca-certificates tzdata && \
 # Directorio de trabajo seguro e independiente
 WORKDIR /app
 
-# Copiar el binario compilado desde el builder directamente al path del sistema
+# Copiar los binarios compilados desde el builder directamente al path del sistema
+COPY --from=builder --chown=appuser:appgroup /magi-api /usr/local/bin/magi-api
+COPY --from=builder --chown=appuser:appgroup /magi-worker /usr/local/bin/magi-worker
 COPY --from=builder --chown=appuser:appgroup /magi-service /usr/local/bin/magi-service
+
+# Copiar y asegurar permisos del script de entrada (dispatcher CQRS)
+COPY --chown=appuser:appgroup scripts/entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh
 
 # Cambiar al usuario sin privilegios
 USER appuser
 
-# Puerto expuesto por el servidor HTTP de Gin
+# Puerto expuesto por el servidor HTTP de Gin (magi-api)
 EXPOSE 8080
 
-# Health check: valida que el servidor HTTP responda correctamente.
+# Health check adaptativo:
+# - Si corre magi-worker: valida que el proceso esté vivo en segundo plano.
+# - Si corre magi-api o magi-service: valida que el endpoint /health responda HTTP 200.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-    CMD wget -qO- http://localhost:8080/health || exit 1
+    CMD pgrep -x magi-worker > /dev/null || wget -qO- http://localhost:8080/health || exit 1
 
-# Punto de entrada del servicio usando la ruta absoluta
-ENTRYPOINT ["/usr/local/bin/magi-service"]
+# Punto de entrada despachador: acepta 'api', 'worker', 'monolith' o comandos directos
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
+CMD ["api"]
