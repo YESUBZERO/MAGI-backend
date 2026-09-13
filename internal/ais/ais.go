@@ -1,6 +1,14 @@
 package ais
 
-import "time"
+import (
+	"errors"
+	"time"
+)
+
+// Errores de dominio
+var (
+	ErrShipNotFound = errors.New("buque no encontrado")
+)
 
 // ===========================================================
 // MODELOS DE LA ENTIDAD AIS

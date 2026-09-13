@@ -1,6 +1,7 @@
 package ais
 
 import (
+	"errors"
 	"time"
 
 	"gorm.io/gorm"
@@ -49,30 +50,7 @@ type DBDynamicAIS struct {
 	UpdatedAt time.Time
 }
 
-// ShipScraper representa la estructura almacenada en PostgreSQL
-// type ShipScraper struct {
-// 	IMO            int     `gorm:"primaryKey" json:"imo"`
-// 	MMSI           int     `gorm:"uniqueIndex" json:"mmsi"`
-// 	Callsign       string  `json:"callsign"`
-// 	Shipname       string  `json:"shipname"`
-// 	ShipType       string  `json:"ship_type"`
-// 	BuiltYear      *string `gorm:"column:built_year" json:"Built"`
-// 	Shipyard       *string `gorm:"column:shipyard" json:"shipyard"`
-// 	HullNumber     *string `gorm:"column:hull_number" json:"Hull-No."`
-// 	KeelLaying     *string `gorm:"column:keel_laying" json:"Keel Laying"`
-// 	LaunchDate     *string `gorm:"column:launch_date" json:"Launch"`
-// 	DeliveryDate   *string `gorm:"column:delivery_date" json:"Delivery"`
-// 	GT             *string `gorm:"column:gt" json:"gt"`
-// 	NT             *string `gorm:"column:nt" json:"nt"`
-// 	CarryingCapTDW *string `gorm:"column:carrying_capacity_tdw" json:"Carrying capacity (tdw)"`
-// 	LengthOverall  *string `gorm:"column:length_overall" json:"Length overall (m)"`
-// 	Breadth        *string `gorm:"column:breadth" json:"Breadth (m)"`
-// 	Depth          *string `gorm:"column:depth" json:"Depth (m)"`
-// 	Propulsion     *string `gorm:"column:propulsion" json:"propulsion"`
-// 	Power          *string `gorm:"column:power" json:"power"`
-// 	Screws         *string `gorm:"column:screws" json:"screws"`
-// 	Speed          *string `gorm:"column:speed" json:"speed"`
-// }
+
 
 // ===========================================================
 // INTERFAZ Y CONTRATO DEL REPOSITORIO
@@ -82,8 +60,8 @@ type DBDynamicAIS struct {
 type Repository interface {
 	SaveStatic(ais *StaticAIS) error
 	SaveDynamic(ais *DynamicAIS) error
-	GetByIMO(imo int) (*StaticAIS, error)
-	GetByMMSI(mmsi int) (*StaticAIS, error)
+	GetByIMO(imo int, limit, offset int) (*StaticAIS, error)
+	GetByMMSI(mmsi int, limit, offset int) (*StaticAIS, error)
 }
 
 // Definimos un struct type para implementar
@@ -121,25 +99,17 @@ func (r *repository) SaveStatic(ais *StaticAIS) error {
 // SaveDynamic guarda la posición del barco
 func (r *repository) SaveDynamic(ais *DynamicAIS) error {
 
-	// 1. Comprobamos si existe el registro estatico del buque
-	var count int64
-	err := r.db.Model(&DBStaticAIS{}).
-		Where("mmsi = ?", ais.MMSI).
-		Count(&count).Error
-
-	if err != nil {
-		return err
+	// 1. Garantizamos la existencia del buque de forma atómica e idempotente.
+	//    Si ya existe, OnConflict ignora la inserción sin error y sin colisiones de concurrencia.
+	placeholder := DBStaticAIS{
+		MMSI:     ais.MMSI,
+		Shipname: "UNKNOWN", // Se actualizará cuando llegue el mensaje estático
 	}
-
-	// 2. Si el buque no existe creamos el registro momentaneo
-	if count == 0 {
-		staticMessage := DBStaticAIS{
-			MMSI:     ais.MMSI,
-			Shipname: "UNKNOWN", // Se actualiza cuando llegue el mensaje estatico
-		}
-		if error := r.db.Create(&staticMessage).Error; error != nil {
-			return error
-		}
+	if err := r.db.Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "mmsi"}},
+		DoNothing: true,
+	}).Create(&placeholder).Error; err != nil {
+		return err
 	}
 
 	// 3. Mapeamos el dominio al modelo GORM
@@ -167,15 +137,28 @@ func (r *repository) SaveDynamic(ais *DynamicAIS) error {
 	return r.db.Clauses(clause.OnConflict{DoNothing: true}).Create(&dynamicMessage).Error
 }
 
-// GetByIMO busca un buque estatico e incluye todo su historial de posiciones.
-func (r *repository) GetByIMO(imo int) (*StaticAIS, error) {
-	// 1. Cargamos la relacion de Dynamics usando FK con Preload
+// GetByIMO busca un buque estatico e incluye su historial de posiciones paginado.
+func (r *repository) GetByIMO(imo int, limit, offset int) (*StaticAIS, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	if limit > 500 {
+		limit = 500
+	}
+	if offset < 0 {
+		offset = 0
+	}
+
+	// 1. Cargamos la relacion de Dynamics usando FK con Preload ordenado y limitado
 	var staticMessage DBStaticAIS
-	err := r.db.Preload("Dynamics").
-		Where("imo = ?", imo).
-		First(&staticMessage).Error
+	err := r.db.Preload("Dynamics", func(db *gorm.DB) *gorm.DB {
+		return db.Order("timestamp DESC").Limit(limit).Offset(offset)
+	}).Where("imo = ?", imo).First(&staticMessage).Error
 
 	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrShipNotFound
+		}
 		return nil, err
 	}
 
@@ -219,8 +202,64 @@ func (r *repository) GetByIMO(imo int) (*StaticAIS, error) {
 	}, nil
 }
 
-// GetByMMSI obtiene informacion de un barco por MMSI
-func (r *repository) GetByMMSI(mmsi int) (*StaticAIS, error) {
-	// método para obtener informacion dinamica de un barco
-	return nil, nil
+// GetByMMSI obtiene información de un barco por su código MMSI con telemetría paginada.
+func (r *repository) GetByMMSI(mmsi int, limit, offset int) (*StaticAIS, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	if limit > 500 {
+		limit = 500
+	}
+	if offset < 0 {
+		offset = 0
+	}
+
+	var staticMessage DBStaticAIS
+	err := r.db.Preload("Dynamics", func(db *gorm.DB) *gorm.DB {
+		return db.Order("timestamp DESC").Limit(limit).Offset(offset)
+	}).Where("mmsi = ?", mmsi).First(&staticMessage).Error
+
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrShipNotFound
+		}
+		return nil, err
+	}
+
+	dynamicMessages := make([]DynamicAIS, len(staticMessage.Dynamics))
+	for i, d := range staticMessage.Dynamics {
+		dynamicMessages[i] = DynamicAIS{
+			ID:        d.ID,
+			MsgType:   d.MsgType,
+			Timestamp: d.Timestamp,
+			MMSI:      d.MMSI,
+			Status:    d.Status,
+			Turn:      d.Turn,
+			Speed:     d.Speed,
+			Accuracy:  d.Accuracy,
+			Longitude: d.Longitude,
+			Latitude:  d.Latitude,
+			Course:    d.Course,
+			Heading:   d.Heading,
+			Second:    d.Second,
+			Maneuver:  d.Maneuver,
+			Raim:      d.Raim,
+			Radio:     d.Radio,
+			CreatedAt: d.CreatedAt,
+			UpdatedAt: d.UpdatedAt,
+		}
+	}
+
+	return &StaticAIS{
+		ID:        staticMessage.ID,
+		MsgType:   staticMessage.MsgType,
+		IMO:       staticMessage.IMO,
+		MMSI:      staticMessage.MMSI,
+		Callsign:  staticMessage.Callsign,
+		Shipname:  staticMessage.Shipname,
+		ShipType:  staticMessage.ShipType,
+		CreatedAt: staticMessage.CreatedAt,
+		UpdatedAt: staticMessage.UpdatedAt,
+		Dynamics:  dynamicMessages,
+	}, nil
 }

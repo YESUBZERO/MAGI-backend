@@ -18,11 +18,11 @@ func InitPostgres(dsn string) (*gorm.DB, error) {
 	newLogger := logger.New(
 		log.New(os.Stdout, "\r\n", log.LstdFlags), // io writer
 		logger.Config{
-			SlowThreshold:             time.Second,   // Slow SQL threshold
-			LogLevel:                  logger.Silent, // Log level
-			IgnoreRecordNotFoundError: true,          // Ignore ErrRecordNotFound error for logger
-			ParameterizedQueries:      true,          // Don't include params in the SQL log
-			Colorful:                  false,         // Disable color
+			SlowThreshold:             time.Second, // Slow SQL threshold
+			LogLevel:                  logger.Warn, // Log level para reportar consultas lentas y errores
+			IgnoreRecordNotFoundError: true,        // Ignore ErrRecordNotFound error for logger
+			ParameterizedQueries:      true,        // Don't include params in the SQL log
+			Colorful:                  false,       // Disable color
 		},
 	)
 
@@ -35,7 +35,7 @@ func InitPostgres(dsn string) (*gorm.DB, error) {
 	}
 
 	// 3. Configurar el pool de conexiones (performance y estabilidad)
-	// Extraemos la isntancia de sql.DB para configurar el pool
+	// Extraemos la instancia de sql.DB para configurar el pool
 	sqlDB, err := db.DB()
 	if err != nil {
 		return nil, fmt.Errorf("error al obtener la instancia SQL nativa: %w", err)
