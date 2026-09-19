@@ -1,0 +1,192 @@
+openapi: 3.0.3
+info:
+  title: AIRES MAGI API
+  description: API marítima para ingesta de datos y consulta de telemetría de buques AIS.
+  version: 1.0.0
+paths:
+  /health:
+    get:
+      summary: Health check profundo
+      operationId: getHealth
+      responses:
+        "200":
+          description: Servicio saludable y base de datos conectada
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+        "503":
+          description: Base de datos no disponible
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/v1/static:
+    post:
+      summary: Registrar o actualizar información estática del buque
+      operationId: createStaticAIS
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateStaticRequest"
+      responses:
+        "201":
+          description: Buque registrado exitosamente
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+        "400":
+          description: Validación fallida
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/v1/ship/{imo}:
+    get:
+      summary: Consultar buque e historial de telemetría por IMO
+      operationId: getShipByIMO
+      parameters:
+        - name: imo
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+      responses:
+        "200":
+          description: Detalles del buque e historial
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ShipDetailsResponse"
+        "404":
+          description: Buque no encontrado
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/v1/ship/mmsi/{mmsi}:
+    get:
+      summary: Consultar buque e historial de telemetría por MMSI
+      operationId: getShipByMMSI
+      parameters:
+        - name: mmsi
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+      responses:
+        "200":
+          description: Detalles del buque e historial
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ShipDetailsResponse"
+        "404":
+          description: Buque no encontrado
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+components:
+  schemas:
+    HealthResponse:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+        service:
+          type: string
+        database:
+          type: string
+
+    CreateStaticRequest:
+      type: object
+      required: [msg_type, imo, mmsi, shipname]
+      properties:
+        msg_type:
+          type: integer
+        imo:
+          type: integer
+        mmsi:
+          type: integer
+        callsign:
+          type: string
+        shipname:
+          type: string
+        ship_type:
+          type: string
+
+    ShipDetailsResponse:
+      type: object
+      required: [mmsi, shipname]
+      properties:
+        imo:
+          type: integer
+        mmsi:
+          type: integer
+        callsign:
+          type: string
+        shipname:
+          type: string
+        ship_type:
+          type: string
+        total_positions_recorded:
+          type: integer
+        position_history:
+          type: array
+          items:
+            $ref: "#/components/schemas/DynamicHistoryItem"
+
+    DynamicHistoryItem:
+      type: object
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+        latitude:
+          type: number
+        longitude:
+          type: number
+        status:
+          type: string
+        speed_knots:
+          type: number
+        course:
+          type: number
+
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string

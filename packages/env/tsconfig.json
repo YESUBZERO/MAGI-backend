@@ -1,0 +1,3 @@
+{
+  "extends": "@aires-magi/config/tsconfig.base.json"
+}
