@@ -1,7 +1,9 @@
 package ais
 
 import (
+	"context"
 	"errors"
+	"strings"
 
 	"aires-magi/internal/models"
 )
@@ -146,4 +148,162 @@ func NewService(repo Repository) Service {
 		IngestionService: NewIngestionService(repo),
 		QueryService:     NewQueryService(repo),
 	}
+}
+
+// ===========================================================
+// BÚSQUEDA FACETADA Y TELEMETRÍA (Search Path)
+// ===========================================================
+
+// ShipSearchService define las operaciones de negocio para búsqueda facetada y telemetría acotada
+type ShipSearchService interface {
+	SearchShips(ctx context.Context, filter models.ShipSearchFilter) (*models.ShipSearchResponse, error)
+	GetShipTelemetry(ctx context.Context, filter models.TelemetryQueryFilter) (*models.TelemetryQueryResponse, error)
+}
+
+type shipSearchService struct {
+	repo SearchRepository
+}
+
+// NewShipSearchService construye el servicio para búsqueda facetada y consulta de telemetría acotada
+func NewShipSearchService(repo SearchRepository) ShipSearchService {
+	return &shipSearchService{repo: repo}
+}
+
+func (s *shipSearchService) SearchShips(ctx context.Context, filter models.ShipSearchFilter) (*models.ShipSearchResponse, error) {
+	if filter.Limit <= 0 {
+		filter.Limit = 50
+	}
+	if filter.Limit > 500 {
+		filter.Limit = 500
+	}
+	if filter.Offset < 0 {
+		filter.Offset = 0
+	}
+	return s.repo.SearchShips(ctx, filter)
+}
+
+func (s *shipSearchService) GetShipTelemetry(ctx context.Context, filter models.TelemetryQueryFilter) (*models.TelemetryQueryResponse, error) {
+	if filter.MMSI <= 0 {
+		return nil, errors.New("el código MMSI no es válido")
+	}
+	if filter.From.After(filter.To) {
+		return nil, errors.New("la fecha 'from' no puede ser posterior a 'to'")
+	}
+	if filter.Limit <= 0 {
+		filter.Limit = 100
+	}
+	if filter.Limit > 1000 {
+		filter.Limit = 1000
+	}
+	if filter.Offset < 0 {
+		filter.Offset = 0
+	}
+	return s.repo.GetShipTelemetry(ctx, filter)
+}
+
+// SearchShips realiza búsquedas facetadas sobre static_ais aplicando filtros y paginación
+func (r *repository) SearchShips(ctx context.Context, filter models.ShipSearchFilter) (*models.ShipSearchResponse, error) {
+	db := r.db.WithContext(ctx).Model(&models.DBStaticAIS{})
+
+	if filter.Query != "" {
+		likePattern := "%" + strings.ToLower(filter.Query) + "%"
+		db = db.Where("LOWER(shipname) LIKE LOWER(?)", likePattern)
+	}
+
+	if filter.IMO != nil {
+		db = db.Where("imo = ?", *filter.IMO)
+	}
+
+	if filter.MMSI != nil {
+		db = db.Where("mmsi = ?", *filter.MMSI)
+	}
+
+	if filter.ShipType != "" {
+		db = db.Where("LOWER(ship_type) = LOWER(?)", filter.ShipType)
+	}
+
+	var total int64
+	if err := db.Count(&total).Error; err != nil {
+		return nil, err
+	}
+
+	limit := filter.Limit
+	if limit <= 0 {
+		limit = 50
+	}
+	offset := filter.Offset
+	if offset < 0 {
+		offset = 0
+	}
+
+	var dbShips []models.DBStaticAIS
+	if err := db.Limit(limit).Offset(offset).Find(&dbShips).Error; err != nil {
+		return nil, err
+	}
+
+	ships := make([]models.StaticAIS, len(dbShips))
+	for i, s := range dbShips {
+		ships[i] = *mapToDomain(&s)
+	}
+
+	return &models.ShipSearchResponse{
+		Total:  total,
+		Limit:  limit,
+		Offset: offset,
+		Ships:  ships,
+	}, nil
+}
+
+// GetShipTelemetry recupera la telemetría dinámica acotada por MMSI y rango de fechas
+func (r *repository) GetShipTelemetry(ctx context.Context, filter models.TelemetryQueryFilter) (*models.TelemetryQueryResponse, error) {
+	var exists int
+	res := r.db.WithContext(ctx).Raw("SELECT 1 FROM static_ais WHERE mmsi = ? LIMIT 1", filter.MMSI).Scan(&exists)
+	if res.Error != nil {
+		return nil, res.Error
+	}
+	if res.RowsAffected == 0 || exists != 1 {
+		return nil, models.ErrShipNotFound
+	}
+
+	query := r.db.WithContext(ctx).Model(&models.DBDynamicAIS{}).
+		Where("mmsi = ? AND timestamp >= ? AND timestamp <= ?", filter.MMSI, filter.From, filter.To)
+
+	var total int64
+	if err := query.Count(&total).Error; err != nil {
+		return nil, err
+	}
+
+	limit := filter.Limit
+	if limit <= 0 {
+		limit = 100
+	}
+	offset := filter.Offset
+	if offset < 0 {
+		offset = 0
+	}
+
+	var dbTelemetry []models.DBDynamicAIS
+	if err := query.Order("timestamp ASC").Limit(limit).Offset(offset).Find(&dbTelemetry).Error; err != nil {
+		return nil, err
+	}
+
+	telemetry := make([]models.DynamicHistoryResponse, len(dbTelemetry))
+	for i, d := range dbTelemetry {
+		telemetry[i] = models.DynamicHistoryResponse{
+			Timestamp: d.Timestamp,
+			Latitude:  d.Latitude,
+			Longitude: d.Longitude,
+			Status:    d.Status,
+			Speed:     d.Speed,
+			Course:    d.Course,
+		}
+	}
+
+	return &models.TelemetryQueryResponse{
+		MMSI:      filter.MMSI,
+		From:      filter.From,
+		To:        filter.To,
+		Total:     total,
+		Telemetry: telemetry,
+	}, nil
 }

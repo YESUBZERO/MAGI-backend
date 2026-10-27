@@ -12,6 +12,7 @@ import (
 	"gorm.io/gorm"
 
 	"aires-magi/internal/ais"
+	"aires-magi/internal/middleware"
 	"aires-magi/internal/models"
 )
 
@@ -23,13 +24,15 @@ type AISHandler struct {
 	logger           zerolog.Logger
 }
 
-// NewAISHandler construye y registra las rutas AIS en el router de Gin
+// NewAISHandler construye y registra las rutas AIS en el router de Gin.
+// Si se inyecta authMiddleware, protege las rutas con RBAC; de lo contrario se mantienen abiertas para testing/aislamiento.
 func NewAISHandler(
 	r *gin.Engine,
 	q ais.QueryService,
 	ing ais.IngestionService,
 	db *gorm.DB,
 	log zerolog.Logger,
+	auth ...middleware.AuthMiddleware,
 ) *AISHandler {
 	h := &AISHandler{
 		queryService:     q,
@@ -38,16 +41,25 @@ func NewAISHandler(
 		logger:           log.With().Str("component", "ais-handler").Logger(),
 	}
 
-	// Health check profundo (verifica ping a base de datos)
+	// Health check profundo público (sonda de liveness)
 	r.GET("/health", h.HealthCheck)
 
 	// Grupo de rutas de la API v1
 	v1 := r.Group("/api/v1")
-	{
-		if h.ingestionService != nil {
+	hasAuth := len(auth) > 0 && auth[0] != nil
+
+	if h.ingestionService != nil {
+		if hasAuth {
+			v1.POST("/static", auth[0].RequireAuth(), auth[0].RequireRole("ais:admin"), h.CreateStaticMessage)
+		} else {
 			v1.POST("/static", h.CreateStaticMessage)
 		}
-		if h.queryService != nil {
+	}
+	if h.queryService != nil {
+		if hasAuth {
+			v1.GET("/ship/:imo", auth[0].RequireAuth(), auth[0].RequireRole("ais:viewer"), h.GetShipByIMO)
+			v1.GET("/ship/mmsi/:mmsi", auth[0].RequireAuth(), auth[0].RequireRole("ais:viewer"), h.GetShipByMMSI)
+		} else {
 			v1.GET("/ship/:imo", h.GetShipByIMO)
 			v1.GET("/ship/mmsi/:mmsi", h.GetShipByMMSI)
 		}
@@ -133,7 +145,15 @@ func (h *AISHandler) GetShipByIMO(c *gin.Context) {
 	}
 
 	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "50"))
+	if limit <= 0 {
+		limit = 50
+	} else if limit > 500 {
+		limit = 500
+	}
 	offset, _ := strconv.Atoi(c.DefaultQuery("offset", "0"))
+	if offset < 0 {
+		offset = 0
+	}
 
 	if h.queryService == nil {
 		c.JSON(http.StatusNotImplemented, gin.H{"error": "módulo de consultas no disponible"})
@@ -164,7 +184,15 @@ func (h *AISHandler) GetShipByMMSI(c *gin.Context) {
 	}
 
 	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "50"))
+	if limit <= 0 {
+		limit = 50
+	} else if limit > 500 {
+		limit = 500
+	}
 	offset, _ := strconv.Atoi(c.DefaultQuery("offset", "0"))
+	if offset < 0 {
+		offset = 0
+	}
 
 	if h.queryService == nil {
 		c.JSON(http.StatusNotImplemented, gin.H{"error": "módulo de consultas no disponible"})

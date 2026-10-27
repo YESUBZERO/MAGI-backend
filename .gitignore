@@ -54,3 +54,7 @@ bun.log
 dist/
 build/
 app.db
+
+# Agent / CLI local cache
+.agents/
+skills-lock.json

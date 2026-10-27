@@ -62,7 +62,7 @@ type DBStaticAIS struct {
 	MMSI      int            `gorm:"column:mmsi;uniqueIndex"`
 	Callsign  string         `gorm:"column:callsign"`
 	Shipname  string         `gorm:"column:shipname"`
-	ShipType  string         `gorm:"column:ship_type"`
+	ShipType  string         `gorm:"column:ship_type;index:idx_static_ship_type"`
 	CreatedAt time.Time      `gorm:"column:created_at"`
 	UpdatedAt time.Time      `gorm:"column:updated_at"`
 	Dynamics  []DBDynamicAIS `gorm:"foreignKey:MMSI;references:MMSI"`
@@ -73,12 +73,13 @@ func (DBStaticAIS) TableName() string {
 }
 
 // DBDynamicAIS representa la tabla relacional PostgreSQL para telemetría dinámica.
-// El índice único compuesto (MMSI, Timestamp) garantiza idempotencia estricta en la ingesta.
+// El índice único compuesto (MMSI, Timestamp) garantiza idempotencia estricta en la ingesta
+// y optimiza consultas de rango temporal por buque mediante filtrado por prefijo de índice.
 type DBDynamicAIS struct {
 	ID        uint      `gorm:"primaryKey"`
 	MsgType   int       `gorm:"column:msg_type"`
-	Timestamp time.Time `gorm:"column:timestamp;uniqueIndex:idx_dynamic_mmsi_timestamp"`
-	MMSI      int       `gorm:"column:mmsi;uniqueIndex:idx_dynamic_mmsi_timestamp"`
+	MMSI      int       `gorm:"column:mmsi;uniqueIndex:idx_dynamic_mmsi_timestamp,priority:1"`
+	Timestamp time.Time `gorm:"column:timestamp;uniqueIndex:idx_dynamic_mmsi_timestamp,priority:2"`
 	Status    string    `gorm:"column:status"`
 	Turn      float64   `gorm:"column:turn"`
 	Speed     float64   `gorm:"column:speed"`

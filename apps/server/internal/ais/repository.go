@@ -1,6 +1,7 @@
 package ais
 
 import (
+	"context"
 	"errors"
 
 	"gorm.io/gorm"
@@ -8,6 +9,12 @@ import (
 
 	"aires-magi/internal/models"
 )
+
+// SearchRepository define el contrato de persistencia para búsqueda facetada y telemetría acotada
+type SearchRepository interface {
+	SearchShips(ctx context.Context, filter models.ShipSearchFilter) (*models.ShipSearchResponse, error)
+	GetShipTelemetry(ctx context.Context, filter models.TelemetryQueryFilter) (*models.TelemetryQueryResponse, error)
+}
 
 // Repository define el contrato de acceso a datos para AIS
 type Repository interface {
@@ -23,6 +30,11 @@ type repository struct {
 
 // NewRepository construye el repositorio AIS con la conexión GORM
 func NewRepository(db *gorm.DB) Repository {
+	return &repository{db: db}
+}
+
+// NewSearchRepository construye el repositorio de búsqueda con la conexión GORM
+func NewSearchRepository(db *gorm.DB) SearchRepository {
 	return &repository{db: db}
 }
 

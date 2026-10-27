@@ -48,9 +48,22 @@ func InitPostgres(dsn string, zlog zerolog.Logger) (*gorm.DB, error) {
 	sqlDB.SetMaxOpenConns(25)
 	sqlDB.SetConnMaxLifetime(time.Hour)
 
-	// Ejecutar AutoMigrate para tablas AIS
-	if err := db.AutoMigrate(&models.DBStaticAIS{}, &models.DBDynamicAIS{}); err != nil {
+	// Ejecutar AutoMigrate para tablas AIS y ExportJobs
+	if err := db.AutoMigrate(&models.DBStaticAIS{}, &models.DBDynamicAIS{}, &models.ExportJob{}); err != nil {
 		return nil, fmt.Errorf("error en automigración AIS: %w", err)
+	}
+
+	// Optimización P1: Extensión pg_trgm e índice GIN Trigram para acelerar búsquedas de nombres de buques
+	if db.Dialector.Name() == "postgres" {
+		if err := db.Exec("CREATE EXTENSION IF NOT EXISTS pg_trgm").Error; err != nil {
+			zlog.Warn().Err(err).Msg("No se pudo crear extensión pg_trgm (requiere permisos en PostgreSQL)")
+		} else {
+			if err := db.Exec("CREATE INDEX IF NOT EXISTS idx_static_ais_shipname_trgm ON static_ais USING gin (LOWER(shipname) gin_trgm_ops)").Error; err != nil {
+				zlog.Warn().Err(err).Msg("No se pudo crear índice GIN trigram en shipname")
+			} else {
+				zlog.Info().Msg("Índice GIN trigram verificado en static_ais(LOWER(shipname))")
+			}
+		}
 	}
 
 	zlog.Info().Msg("Conexión a base de datos PostgreSQL establecida y esquemas verificados")
