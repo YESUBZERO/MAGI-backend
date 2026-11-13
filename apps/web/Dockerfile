@@ -12,8 +12,7 @@ COPY packages/db/package.json ./packages/db/
 RUN bun install --frozen-lockfile
 
 # Etapa 2: Build de producción (Next.js standalone)
-FROM base AS builder
-COPY --from=deps /app/node_modules ./node_modules
+FROM deps AS builder
 COPY . .
 
 ARG NEXT_PUBLIC_API_URL=https://api.airesresearch.com

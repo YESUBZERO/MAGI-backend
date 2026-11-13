@@ -37,7 +37,7 @@ env:
 jobs:
   quality-gates:
     name: Quality Gates (Go + Next.js + Kustomize)
-    runs-on: [self-hosted, linux, arm64]
+    runs-on: ubuntu-latest
     permissions:
       contents: read
     steps:
@@ -70,10 +70,8 @@ jobs:
 
       - name: Validate Kustomize manifests
         run: |
-          if command -v kubectl >/dev/null 2>&1; then
-            kubectl kustomize deploy/k8s/overlays/qa > /dev/null
-            kubectl kustomize deploy/k8s/overlays/prod > /dev/null
-          fi
+          kubectl kustomize deploy/k8s/overlays/qa > /dev/null
+          kubectl kustomize deploy/k8s/overlays/prod > /dev/null
 
   build-and-push:
     name: Build & Push ARM64 Images to Harbor
@@ -163,7 +161,7 @@ jobs:
   gitops-promote:
     name: Update Kustomize Tag for ArgoCD
     needs: build-and-push
-    runs-on: [self-hosted, linux, arm64]
+    runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
