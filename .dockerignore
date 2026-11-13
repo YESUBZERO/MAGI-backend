@@ -1,0 +1,13 @@
+.git
+.github
+deploy
+docs
+scripts
+apps/server
+**/node_modules
+**/.next
+**/.turbo
+*.log
+.env
+.env.*
+!.env.example

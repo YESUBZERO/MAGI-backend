@@ -86,7 +86,7 @@ func main() {
 
 	// Inicializar ExportService y Worker asíncrono
 	exportRepo := ais.NewExportRepository(db)
-	exportService := ais.NewExportService(exportRepo, db, "", logger)
+	exportService := ais.NewExportService(exportRepo, db, os.Getenv("EXPORT_STORAGE_DIR"), logger)
 	go exportService.StartWorker(ctx)
 
 	// Cliente Redis opcional para diagnósticos

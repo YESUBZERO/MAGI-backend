@@ -1,0 +1,50 @@
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: magi-web-route
+  labels:
+    app.kubernetes.io/name: magi-web
+    app.kubernetes.io/part-of: aires-magi
+spec:
+  parentRefs:
+    - name: traefik-gateway
+      namespace: kube-system
+      sectionName: http
+  hostnames:
+    - "magi-qa.airesresearch.com"
+    - "magi-qa.local"
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: magi-web
+          port: 3000
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: magi-api-route
+  labels:
+    app.kubernetes.io/name: magi-api
+    app.kubernetes.io/part-of: aires-magi
+spec:
+  parentRefs:
+    - name: traefik-gateway
+      namespace: kube-system
+      sectionName: http
+  hostnames:
+    - "api-qa.airesresearch.com"
+    - "api-qa.local"
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /api
+        - path:
+            type: Exact
+            value: /health
+      backendRefs:
+        - name: magi-api
+          port: 8080

@@ -1,0 +1,20 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: magi-prod
+
+resources:
+  - ../../base
+  - external-secret.yaml
+  - httproute.yaml
+  - hpa-pdb.yaml
+  - networkpolicy.yaml
+
+images:
+  - name: harbor.airesresearch.com/magi/server
+    newTag: v0.2.0
+  - name: harbor.airesresearch.com/magi/web
+    newTag: v0.2.0
+
+patches:
+  - path: ha-patch.yaml

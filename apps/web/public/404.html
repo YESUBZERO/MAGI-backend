@@ -1,0 +1,459 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>404 - Coordenadas No Encontradas | AIRES MAGI</title>
+  <link rel="icon" href="/favicon.ico">
+  <style>
+    :root {
+      --bg: #fafafa;
+      --card-bg: #ffffff;
+      --border: #e4e4e7;
+      --border-subtle: #f4f4f5;
+      --text-main: #09090b;
+      --text-muted: #71717a;
+      --text-dim: #a1a1aa;
+      --primary: #09090b;
+      --primary-fg: #fafafa;
+      --accent-blue: #0284c7;
+
+      /* Anatomy Light Theme */
+      --iso-paper: #ffffff;
+      --iso-shade-0: #e4e4e7;
+      --iso-shade-1: #ececee;
+      --iso-shade-2: #f4f4f5;
+      --iso-shade-3: #fcfcfc;
+      --iso-top: #ffffff;
+      --iso-hi: #18181b;
+      --iso-mid: #71717a;
+      --iso-lo: #d4d4d8;
+      --iso-faint: #f4f4f5;
+      --iso-lit: #0284c7;
+      --iso-halo: rgba(0, 0, 0, 0.03);
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      background-color: var(--bg);
+      color: var(--text-main);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      padding: 2rem 1rem;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .wrapper {
+      width: 100%;
+      max-width: 620px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      text-align: center;
+      gap: 1.75rem;
+    }
+
+    /* Minimal Header (shadcn style) */
+    .header {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 0.72rem;
+      font-weight: 500;
+      letter-spacing: 0.04em;
+      padding: 0.2rem 0.55rem;
+      border-radius: 9999px;
+      background: #f4f4f5;
+      color: #71717a;
+      border: 1px solid var(--border);
+    }
+
+    .badge-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: #f43f5e;
+    }
+
+    h1 {
+      font-size: 1.5rem;
+      font-weight: 600;
+      letter-spacing: -0.03em;
+      color: var(--text-main);
+    }
+
+    p.description {
+      font-size: 0.875rem;
+      color: var(--text-muted);
+      max-width: 440px;
+      line-height: 1.5;
+    }
+
+    /* Anatomy Plate Frame */
+    .iso-plate {
+      position: relative;
+      width: 100%;
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      overflow: hidden;
+      box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.04), 0 1px 2px -1px rgba(0, 0, 0, 0.04);
+      cursor: crosshair;
+      user-select: none;
+    }
+
+    .iso-plate-corners {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      padding: 0.75rem 1rem;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 0.68rem;
+      color: var(--text-dim);
+      z-index: 2;
+    }
+
+    .corner-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .corner-tag {
+      font-weight: 600;
+      color: var(--text-muted);
+    }
+
+    .corner-readout {
+      color: var(--accent-blue);
+      font-weight: 500;
+      letter-spacing: 0.02em;
+    }
+
+    .iso-svg {
+      display: block;
+      width: 100%;
+      height: auto;
+      max-height: 380px;
+    }
+
+    .iso-fill { fill: var(--iso-paper); stroke: none; }
+    .iso-top { fill: var(--iso-top); stroke: none; }
+    .iso-shade-0 { fill: var(--iso-shade-0); stroke: none; }
+    .iso-shade-1 { fill: var(--iso-shade-1); stroke: none; }
+    .iso-halo { fill: var(--iso-halo); filter: blur(6px); }
+
+    .iso-line {
+      fill: none;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      stroke-width: 1;
+    }
+    .iso-line[data-tone="hi"] { stroke: var(--iso-hi); stroke-width: 1.15; }
+    .iso-line[data-tone="mid"] { stroke: var(--iso-mid); stroke-width: 0.95; }
+    .iso-line[data-tone="lo"] { stroke: var(--iso-lo); stroke-width: 0.85; }
+    .iso-line[data-tone="faint"] { stroke: #e4e4e7; stroke-width: 0.75; }
+    .iso-line[data-tone="lit"] { stroke: var(--accent-blue); stroke-width: 1.35; }
+
+    .iso-dot { fill: var(--iso-mid); }
+    .iso-dot[data-tone="lit"] { fill: var(--accent-blue); }
+
+    /* Actions (shadcn Buttons) */
+    .actions {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.75rem;
+      width: 100%;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.45rem;
+      padding: 0.55rem 1rem;
+      border-radius: 6px;
+      font-size: 0.85rem;
+      font-weight: 500;
+      text-decoration: none;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      white-space: nowrap;
+    }
+
+    .btn-outline {
+      background: #ffffff;
+      border: 1px solid var(--border);
+      color: var(--text-main);
+    }
+    .btn-outline:hover {
+      background: #f4f4f5;
+    }
+
+    .btn-primary {
+      background: var(--primary);
+      border: 1px solid var(--primary);
+      color: var(--primary-fg);
+    }
+    .btn-primary:hover {
+      background: #27272a;
+    }
+
+    .hint {
+      font-size: 0.72rem;
+      color: var(--text-dim);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    }
+  </style>
+</head>
+<body>
+
+<div class="wrapper">
+  <div class="header">
+    <div class="badge">
+      <span class="badge-dot"></span>
+      ERROR 404 // COORDENADAS FUERA DE CARTA
+    </div>
+    <h1>Página no encontrada</h1>
+    <p class="description">
+      El buque o la ruta que buscas no existe en la carta náutica ni en el registro activo de telemetría.
+    </p>
+  </div>
+
+  <div class="iso-plate" id="radarStage">
+    <div class="iso-plate-corners">
+      <div class="corner-row">
+        <span class="corner-tag">FIG. 404</span>
+        <span>BARRIDO AZIMUTAL // RASTREO ACTIVO</span>
+      </div>
+      <div class="corner-row">
+        <span class="hint">MOVER CURSOR PARA ROTAR</span>
+        <span class="corner-readout" id="liveReadout">AZ 045.0° · SIN ECO</span>
+      </div>
+    </div>
+
+    <svg class="iso-svg" viewBox="0 0 640 400" id="isoSvg" role="img" aria-label="Radar náutico isométrico minimalista">
+      <g id="staticLayer"></g>
+      <g id="dynamicLayer"></g>
+    </svg>
+  </div>
+
+  <div class="actions">
+    <button class="btn btn-outline" id="recalibrateBtn" type="button">
+      ↺ Recalibrar radar
+    </button>
+    <a class="btn btn-primary" href="/">
+      🧭 Volver al Centro de Mando
+    </a>
+  </div>
+</div>
+
+<script type="module">
+  // Proyección Isométrica limpia (Azimut 45°, Elevación 30°)
+  const COSA = Math.cos((45 * Math.PI) / 180);
+  const SINA = Math.sin((45 * Math.PI) / 180);
+  const SINE = Math.sin((30 * Math.PI) / 180);
+  const COSE = Math.cos((30 * Math.PI) / 180);
+  const SCALE = 1.25;
+  const ORIGIN_X = 320;
+  const ORIGIN_Y = 225;
+
+  function iso(x, y, z) {
+    const rx = x * COSA - y * SINA;
+    const ry = x * SINA + y * COSA;
+    const sx = ORIGIN_X + rx * SCALE;
+    const sy = ORIGIN_Y + (-ry * SINE - z * COSE) * SCALE;
+    return [sx, sy];
+  }
+
+  const BED_X = -130, BED_Y = -70, BED_W = 260, BED_D = 140;
+  const SOUNDER_X = -65, SOUNDER_Y = 8, DIAL_R = 22;
+  const RADAR_X = 65, RADAR_Y = 0, SCANNER_SPAN = 46;
+
+  function buildStatic() {
+    let out = "";
+    
+    // Halo suave
+    const h1 = iso(BED_X - 6, BED_Y - 6, -18);
+    const h2 = iso(BED_X + BED_W + 6, BED_Y - 6, -18);
+    const h3 = iso(BED_X + BED_W + 6, BED_Y + BED_D + 6, -18);
+    const h4 = iso(BED_X - 6, BED_Y + BED_D + 6, -18);
+    out += `<polygon class="iso-halo" points="${h1[0]},${h1[1]} ${h2[0]},${h2[1]} ${h3[0]},${h3[1]} ${h4[0]},${h4[1]}"/>`;
+
+    // Bancada minimalista (Sólido en tonos limpios)
+    const bA = iso(BED_X, BED_Y, 0);
+    const bB = iso(BED_X + BED_W, BED_Y, 0);
+    const bC = iso(BED_X + BED_W, BED_Y + BED_D, 0);
+    const bD = iso(BED_X, BED_Y + BED_D, 0);
+    const bA_b = iso(BED_X, BED_Y, -10);
+    const bB_b = iso(BED_X + BED_W, BED_Y, -10);
+    const bC_b = iso(BED_X + BED_W, BED_Y + BED_D, -10);
+    const bD_b = iso(BED_X, BED_Y + BED_D, -10);
+
+    // Caras laterales con sombra tenue
+    out += `<polygon class="iso-shade-0" points="${bB[0]},${bB[1]} ${bC[0]},${bC[1]} ${bC_b[0]},${bC_b[1]} ${bB_b[0]},${bB_b[1]}"/>`;
+    out += `<polygon class="iso-shade-1" points="${bC[0]},${bC[1]} ${bD[0]},${bD[1]} ${bD_b[0]},${bD_b[1]} ${bC_b[0]},${bC_b[1]}"/>`;
+    out += `<polygon class="iso-top" points="${bA[0]},${bA[1]} ${bB[0]},${bB[1]} ${bC[0]},${bC[1]} ${bD[0]},${bD[1]}"/>`;
+    
+    // Contornos limpios
+    out += `<polygon class="iso-line" data-tone="hi" points="${bA[0]},${bA[1]} ${bB[0]},${bB[1]} ${bC[0]},${bC[1]} ${bD[0]},${bD[1]}"/>`;
+    out += `<polyline class="iso-line" data-tone="lo" points="${bB_b[0]},${bB_b[1]} ${bC_b[0]},${bC_b[1]} ${bD_b[0]},${bD_b[1]}"/>`;
+    out += `<line class="iso-line" data-tone="lo" x1="${bC[0]}" y1="${bC[1]}" x2="${bC_b[0]}" y2="${bC_b[1]}"/>`;
+
+    // Regla tenue frontal
+    const rA = iso(BED_X + 20, BED_Y + BED_D - 8, 0.5);
+    const rB = iso(BED_X + BED_W - 20, BED_Y + BED_D - 8, 0.5);
+    out += `<line class="iso-line" data-tone="lo" x1="${rA[0]}" y1="${rA[1]}" x2="${rB[0]}" y2="${rB[1]}"/>`;
+    for (let i = 0; i <= 24; i++) {
+      const rx = (BED_X + 25) + i * 8.7;
+      const t1 = iso(rx, BED_Y + BED_D - 8, 0.5);
+      const tLen = i % 4 === 0 ? 3 : 1.5;
+      const t2 = iso(rx, BED_Y + BED_D - 8 + tLen, 0.5);
+      out += `<line class="iso-line" data-tone="${i % 4 === 0 ? 'mid' : 'faint'}" x1="${t1[0]}" y1="${t1[1]}" x2="${t2[0]}" y2="${t2[1]}"/>`;
+    }
+
+    // Cuadrante azimutal de la sonda (rosa náutica)
+    const dialPts = [];
+    for (let a = 0; a <= 32; a++) {
+      const theta = (a / 32) * Math.PI * 2;
+      dialPts.push(iso(SOUNDER_X + Math.cos(theta) * DIAL_R, SOUNDER_Y + Math.sin(theta) * DIAL_R, 20));
+    }
+    out += `<polygon class="iso-top" points="${dialPts.map(p => `${p[0]},${p[1]}`).join(' ')}"/>`;
+    out += `<polygon class="iso-line" data-tone="hi" points="${dialPts.map(p => `${p[0]},${p[1]}`).join(' ')}"/>`;
+    
+    // Marcas de rumbo
+    for (let a = 0; a < 32; a++) {
+      const theta = (a / 32) * Math.PI * 2;
+      const d1 = iso(SOUNDER_X + Math.cos(theta) * (DIAL_R - 1), SOUNDER_Y + Math.sin(theta) * (DIAL_R - 1), 20);
+      const len = a % 8 === 0 ? 3 : 1.2;
+      const d2 = iso(SOUNDER_X + Math.cos(theta) * (DIAL_R - 1 - len), SOUNDER_Y + Math.sin(theta) * (DIAL_R - 1 - len), 20);
+      out += `<line class="iso-line" data-tone="${a % 8 === 0 ? 'hi' : 'faint'}" x1="${d1[0]}" y1="${d1[1]}" x2="${d2[0]}" y2="${d2[1]}"/>`;
+    }
+
+    // Pedestal cilíndrico del radar
+    const pedPts = [];
+    for (let a = 0; a <= 28; a++) {
+      const theta = (a / 28) * Math.PI * 2;
+      pedPts.push(iso(RADAR_X + Math.cos(theta) * 20, RADAR_Y + Math.sin(theta) * 20, 28));
+    }
+    out += `<polygon class="iso-top" points="${pedPts.map(p => `${p[0]},${p[1]}`).join(' ')}"/>`;
+    out += `<polygon class="iso-line" data-tone="mid" points="${pedPts.map(p => `${p[0]},${p[1]}`).join(' ')}"/>`;
+
+    // Conexión sutil entre instrumentos
+    const c1 = iso(SOUNDER_X + 22, SOUNDER_Y, 2);
+    const c2 = iso(0, -6, 1);
+    const c3 = iso(RADAR_X - 18, RADAR_Y, 2);
+    out += `<path class="iso-line" data-tone="lo" d="M${c1[0]},${c1[1]} Q${c2[0]},${c2[1]} ${c3[0]},${c3[1]}"/>`;
+
+    return out;
+  }
+
+  function buildDynamic(deg, jitter) {
+    let out = "";
+    const rad = (deg * Math.PI) / 180;
+
+    // Aguja azimutal limpia con acento azul náutico
+    const nAngle = rad * 1.5 + (jitter * Math.PI) / 180;
+    const tip = iso(SOUNDER_X + Math.sin(nAngle) * (DIAL_R - 3), SOUNDER_Y - Math.cos(nAngle) * (DIAL_R - 3), 22);
+    const tail = iso(SOUNDER_X - Math.sin(nAngle) * 4, SOUNDER_Y + Math.cos(nAngle) * 4, 22);
+    out += `<line class="iso-line" data-tone="lit" x1="${tail[0]}" y1="${tail[1]}" x2="${tip[0]}" y2="${tip[1]}"/>`;
+    out += `<circle class="iso-dot" data-tone="lit" cx="${tip[0]}" cy="${tip[1]}" r="2"/>`;
+
+    // Barra de radar estilizada
+    const sinR = Math.sin(rad), cosR = Math.cos(rad);
+    const sx = -sinR * SCANNER_SPAN, sy = cosR * SCANNER_SPAN;
+    const pz = 44;
+
+    const pA = iso(RADAR_X - sx, RADAR_Y - sy, pz - 2);
+    const pB = iso(RADAR_X + sx, RADAR_Y + sy, pz - 2);
+    const pC = iso(RADAR_X + sx, RADAR_Y + sy, pz + 2);
+    const pD = iso(RADAR_X - sx, RADAR_Y - sy, pz + 2);
+
+    out += `<polygon class="iso-fill" points="${pA[0]},${pA[1]} ${pB[0]},${pB[1]} ${pC[0]},${pC[1]} ${pD[0]},${pD[1]}"/>`;
+    out += `<polygon class="iso-line" data-tone="hi" points="${pA[0]},${pA[1]} ${pB[0]},${pB[1]} ${pC[0]},${pC[1]} ${pD[0]},${pD[1]}"/>`;
+
+    // Haz explorador náutico minimalista
+    const hCenter = iso(RADAR_X, RADAR_Y, pz);
+    const bL = iso(RADAR_X + Math.cos(rad - 0.22) * 65, RADAR_Y + Math.sin(rad - 0.22) * 65, pz);
+    const bR = iso(RADAR_X + Math.cos(rad + 0.22) * 65, RADAR_Y + Math.sin(rad + 0.22) * 65, pz);
+    const bM = iso(RADAR_X + Math.cos(rad) * 75, RADAR_Y + Math.sin(rad) * 75, pz);
+
+    out += `<line class="iso-line" data-tone="faint" stroke-dasharray="2,2" x1="${hCenter[0]}" y1="${hCenter[1]}" x2="${bL[0]}" y2="${bL[1]}"/>`;
+    out += `<line class="iso-line" data-tone="faint" stroke-dasharray="2,2" x1="${hCenter[0]}" y1="${hCenter[1]}" x2="${bR[0]}" y2="${bR[1]}"/>`;
+    out += `<line class="iso-line" data-tone="lit" stroke-dasharray="2,3" x1="${bL[0]}" y1="${bL[1]}" x2="${bR[0]}" y2="${bR[1]}"/>`;
+    out += `<circle class="iso-dot" data-tone="lit" cx="${bM[0]}" cy="${bM[1]}" r="2.2"/>`;
+
+    return out;
+  }
+
+  // Montaje
+  document.getElementById("staticLayer").innerHTML = buildStatic();
+  const dynamicLayer = document.getElementById("dynamicLayer");
+  const liveReadout = document.getElementById("liveReadout");
+  const stage = document.getElementById("radarStage");
+  const recalibrateBtn = document.getElementById("recalibrateBtn");
+
+  let targetDeg = 45;
+  let currentDeg = 45;
+  let isHovered = false;
+  let lastTime = 0;
+
+  stage.addEventListener("pointermove", (e) => {
+    isHovered = true;
+    const rect = stage.getBoundingClientRect();
+    const nx = (e.clientX - rect.left) / rect.width;
+    targetDeg = (nx * 360) % 360;
+  });
+
+  stage.addEventListener("pointerleave", () => {
+    isHovered = false;
+  });
+
+  recalibrateBtn.addEventListener("click", () => {
+    targetDeg = 0;
+  });
+
+  function loop(now) {
+    if (!lastTime) lastTime = now;
+    const dt = Math.min((now - lastTime) / 1000, 0.05);
+    lastTime = now;
+
+    if (!isHovered) {
+      targetDeg = (targetDeg + dt * 22) % 360;
+    }
+
+    const diff = targetDeg - currentDeg;
+    const delta = ((diff + 540) % 360) - 180;
+    currentDeg = (currentDeg + delta * (1 - Math.exp(-dt * 5)) + 360) % 360;
+
+    const jitter = Math.sin(now * 0.01) * 3;
+    dynamicLayer.innerHTML = buildDynamic(currentDeg, jitter);
+
+    const azStr = currentDeg.toFixed(1).padStart(5, "0");
+    liveReadout.textContent = `AZ ${azStr}° · SIN ECO`;
+
+    requestAnimationFrame(loop);
+  }
+
+  requestAnimationFrame(loop);
+</script>
+
+</body>
+</html>

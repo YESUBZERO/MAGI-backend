@@ -30,10 +30,20 @@ This file provides context about the project for AI assistants.
 
 ```
 aires-magi/
+├── .agents/agents/  # Active project subagents (backend, frontend, tdd, security, k8s-gitops, data-emissions)
+├── .github/         # CI/CD workflows (ARM64 Self-Hosted Runner -> Harbor -> ArgoCD)
 ├── apps/
-│   ├── web/         # Frontend application
+│   ├── server/      # Go CQRS API & Kafka Worker backend
+│   └── web/         # Frontend application (Next.js standalone)
+├── deploy/
+│   ├── argocd/      # ArgoCD Applications (magi-qa, magi-prod)
+│   ├── cluster-addons/ # ESO, ClusterSecretStore, Harbor & GitHub ARM64 Runner manifests
+│   └── k8s/         # Kustomize base + overlays (qa, prod)
 ├── packages/
-│   └── db/          # Database schema
+│   ├── config/      # Shared TS config
+│   ├── db/          # Database schema docs
+│   └── env/         # Type-safe environment validation
+└── scripts/         # OpenBao bootstrap and local CI/CD orchestration
 ```
 
 ## Common Commands
@@ -42,8 +52,9 @@ aires-magi/
 - `bun dev` - Start development server
 - `bun build` - Build for production
 - `bun test` - Run tests
-- `bun db:push` - Push database schema
-- `bun db:studio` - Open database UI
+- `make ci` - Run Go tests (`-race`), Next.js typecheck/tests, and Kustomize validation
+- `make bao-bootstrap` - Configure OpenBao KV-v2, Kubernetes auth, policies, and secrets
+- `make status` - Check ArgoCD, OpenBao, GitHub Runner, `magi-qa`, and `magi-prod` in k3s
 
 ## Better Fullstack project context
 

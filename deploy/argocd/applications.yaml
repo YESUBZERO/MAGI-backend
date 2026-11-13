@@ -1,0 +1,47 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: magi-qa
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/YESUBZERO/MAGI-backend.git
+    targetRevision: feature/monorepo-migration
+    path: deploy/k8s/overlays/qa
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: magi-qa
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: magi-prod
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/YESUBZERO/MAGI-backend.git
+    targetRevision: feature/monorepo-migration
+    path: deploy/k8s/overlays/prod
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: magi-prod
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true

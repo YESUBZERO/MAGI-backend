@@ -1,0 +1,53 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: magi-api
+spec:
+  replicas: 1
+  template:
+    spec:
+      containers:
+        - name: magi-api
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 300m
+              memory: 256Mi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: magi-worker
+spec:
+  replicas: 1
+  template:
+    spec:
+      containers:
+        - name: magi-worker
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 300m
+              memory: 256Mi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: magi-web
+spec:
+  replicas: 1
+  template:
+    spec:
+      containers:
+        - name: magi-web
+          resources:
+            requests:
+              cpu: 50m
+              memory: 96Mi
+            limits:
+              cpu: 300m
+              memory: 384Mi

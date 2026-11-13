@@ -1,0 +1,154 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: github-runner
+  labels:
+    app.kubernetes.io/part-of: aires-magi
+---
+apiVersion: external-secrets.io/v1beta1
+kind: ExternalSecret
+metadata:
+  name: github-runner-secrets
+  namespace: github-runner
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: openbao-ci
+    kind: ClusterSecretStore
+  target:
+    name: github-runner-secrets
+    creationPolicy: Owner
+  data:
+    - secretKey: REPO_URL
+      remoteRef:
+        key: magi/ci/github-runner
+        property: REPO_URL
+    - secretKey: ACCESS_TOKEN
+      remoteRef:
+        key: magi/ci/github-runner
+        property: ACCESS_TOKEN
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: github-runner-isolation
+  namespace: github-runner
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.42.0.0/16
+              - 10.43.0.0/16
+              - 192.168.100.0/24
+              - 169.254.169.254/32
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: buildkit-cache-pvc
+  namespace: github-runner
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: longhorn
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: magi-github-runner
+  namespace: github-runner
+  labels:
+    app.kubernetes.io/name: magi-github-runner
+    app.kubernetes.io/part-of: aires-magi
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: magi-github-runner
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: magi-github-runner
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: runner
+          image: myoung34/github-runner:latest
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: REPO_URL
+              valueFrom:
+                secretKeyRef:
+                  name: github-runner-secrets
+                  key: REPO_URL
+            - name: ACCESS_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: github-runner-secrets
+                  key: ACCESS_TOKEN
+            - name: RUNNER_NAME
+              value: "k3s-opi5-arm64-runner"
+            - name: RUNNER_WORKDIR
+              value: "/tmp/runner/work"
+            - name: LABELS
+              value: "self-hosted,linux,arm64,k3s"
+            - name: RUNNER_SCOPE
+              value: "repo"
+            - name: DISABLE_AUTO_UPDATE
+              value: "true"
+            - name: DOCKER_HOST
+              value: "tcp://127.0.0.1:2375"
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "512Mi"
+            limits:
+              cpu: "2000m"
+              memory: "3Gi"
+          volumeMounts:
+            - name: runner-work
+              mountPath: /tmp/runner/work
+        - name: dind
+          image: docker:27-dind
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            privileged: true
+          env:
+            - name: DOCKER_TLS_CERTDIR
+              value: ""
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "512Mi"
+            limits:
+              cpu: "2000m"
+              memory: "3Gi"
+          volumeMounts:
+            - name: docker-storage
+              mountPath: /var/lib/docker
+      volumes:
+        - name: runner-work
+          emptyDir: {}
+        - name: docker-storage
+          persistentVolumeClaim:
+            claimName: buildkit-cache-pvc

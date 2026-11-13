@@ -56,19 +56,19 @@ LABEL org.opencontainers.image.title="AIRES MAGI Backend" \
       org.opencontainers.image.source="https://github.com/YESUBZERO/MAGI-backend"
 
 RUN apk add --no-cache ca-certificates tzdata procps && \
-    addgroup -S appgroup && \
-    adduser -S appuser -G appgroup
+    addgroup -S -g 10001 appgroup && \
+    adduser -S -u 10001 -G appgroup appuser
 
 WORKDIR /app
 
-COPY --from=builder --chown=appuser:appgroup /magi-api /usr/local/bin/magi-api
-COPY --from=builder --chown=appuser:appgroup /magi-worker /usr/local/bin/magi-worker
-COPY --from=builder --chown=appuser:appgroup /magi-service /usr/local/bin/magi-service
+COPY --from=builder --chown=10001:10001 /magi-api /usr/local/bin/magi-api
+COPY --from=builder --chown=10001:10001 /magi-worker /usr/local/bin/magi-worker
+COPY --from=builder --chown=10001:10001 /magi-service /usr/local/bin/magi-service
 
-COPY --chown=appuser:appgroup entrypoint.sh /usr/local/bin/entrypoint.sh
+COPY --chown=10001:10001 entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
 
-USER appuser
+USER 10001:10001
 
 EXPOSE 8080
 
